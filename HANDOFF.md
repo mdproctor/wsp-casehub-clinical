@@ -3,50 +3,51 @@
 
 ## What changed this session
 
-Epic 3 paused — engine sub-case execution wiring is not implemented (engine#195 was scaffold only). Documented the gap, blocked clinical#3 on engine#112, fixed the incorrect foundation gates entry in CLAUDE.md. Epic 3 workspace/project branches kept for future resumption.
+Epic 4 (adverse event escalation) fully implemented. 30 tests passing (was 17).
 
-Epic 4 (adverse event escalation) brainstormed, designed, and planned. Implementation plan written and ready.
+**What was built:**
+- `CtcaeGrade.sla()` now returns 7-day SLA for Grade 1-2 (was `Optional.empty()`)
+- Flyway migrations renamed V1-V6 → V100-V105; V106 (work_item_id), V1005 (ae_ledger_entry) added
+- `AdverseEvent.workItemId` field added
+- `AdverseEventLedgerEntry` (JOINED LedgerEntry subclass) in `io.casehub.clinical.ledger`
+- `AdverseEventService` — sets reportedAt server-side, computes slaDeadline, creates WorkItem, writes ledger entry in one JTA transaction
+- `POST /{enrollmentId}/adverse-events` endpoint on `PatientResource`
+- `AdverseEventResourceTest` (5 tests), `AdverseEventServiceTest` (6 tests), showcase extended with Grade 3 + Grade 5 AE scenarios
 
-**Key decisions:**
-- SLA escalation is deployment config (EscalationPolicy SPI), not clinical code — domain service sets `claimDeadline` + `candidateGroups` only
-- Clinical domain migrations renamed V100-V105 (Quarkus Flyway scans casehub-work's V1-V21 from transitive JARs)
-- Two-datasource architecture: default for domain+work, `qhorus` for casehub-ledger
-- `AdverseEventLedgerEntry` is a domain-owned LedgerEntry subclass (JOINED, V1004 migration)
-- connectors notification deferred to clinical#11 (prerequisites listed there)
-
-**Artifacts created:**
-- Spec: `specs/2026-05-11-epic4-adverse-event-escalation-design.md`
-- Plan: `plans/2026-05-11-epic4-adverse-event-escalation.md`
-- Blog: `blog/2026-05-12-mdp01-production-ready-scaffold.md`
+**Key discoveries (all now in CLAUDE.md):**
+- Quarkus ArC ignores `beans.xml` `<alternatives>` — use `quarkus.arc.selected-alternatives`
+- Panache entities can't span two PUs — `AdverseEventLedgerEntry` in `io.casehub.clinical.ledger`, not `.entity`
+- casehub-work must be scanned at `io.casehub.work.runtime` (full package, not just `.model`)
+- H2 multi-datasource JTA requires `quarkus.datasource.*.jdbc.transactions=xa` in test properties
+- casehub-ledger owns V1000-V1004 (V1004 = actor_identity) — consumer joins start at V1005
 
 ## Current state
 
-Both repos on `epic-adverse-event-escalation` branch. No code written yet — design and plan only.
+Both repos on `epic-adverse-event-escalation`. All 30 tests green.
 
 ```
 clinical/
-├── api/          11 enums + constants (CtcaeGrade needs 7-day fix per plan Task 1)
-└── runtime/      6 entities, V100-V105 migrations (after rename), 17 tests
+├── api/     CtcaeGrade with correct SLAs for all grades
+└── runtime/ AdverseEventService, AdverseEventLedgerEntry, AE endpoint, 30 tests
 ```
 
-Engine#112 open and commented — sub-case execution wiring needed before Epic 3 can resume.
+Engine#112 open — sub-case execution wiring needed before Epic 3 can resume.
 
 ## What's next
 
-**Implement Epic 4 using subagent-driven-development.** Start with Task 1 (CtcaeGrade SLA fix) and execute the plan task by task. Plan is at `plans/2026-05-11-epic4-adverse-event-escalation.md`.
+Epic 4 is complete. Next options:
 
-Before executing: invoke `superpowers:subagent-driven-development`.
+1. **Close Epic 4** — invoke `superpowers:finishing-a-development-branch` to merge or PR
+2. **Epic 5** — protocol deviation PI authorisation (COMMAND lifecycle, already in foundation)
+3. **Epic 3** — blocked on engine#112; check if that's been progressed
 
-Note: the Flyway migration rename (V1-V6 → V100-V105) is **Task 2 Step 2.2** in the plan — it must happen before casehub-work is added as a dependency.
+Before starting any new epic: invoke `session-start` for platform coherence check.
 
 ## References
 
-- Spec: `specs/2026-05-11-epic4-adverse-event-escalation-design.md`
-- Plan: `plans/2026-05-11-epic4-adverse-event-escalation.md`
-- Blog: `blog/2026-05-12-mdp01-production-ready-scaffold.md`
+- Blog: `blog/2026-05-12-mdp02-adverse-event-sla-wiring.md`
+- Journal: `design/JOURNAL.md` (updated this session with Epic 4 discoveries)
+- Epic 4 issue: casehubio/clinical#4
 - Engine sub-case tracking: casehubio/engine#112 (open)
 - Epic 3 blocked: casehubio/clinical#3
-- Epic 4 issue: casehubio/clinical#4
-- Connectors deferred: casehubio/clinical#11
-- Flyway numbering protocol: casehubio/parent#17 (open — add to platform docs)
-- Garden entries: GE-20260511-a28064 (Flyway), GE-20260511-3e5a75 (SLA pattern), GE-20260511-b6f903 (LedgerEntry fields)
+- Garden entries (this session): GE-20260512-ee7c07, GE-20260512-4d6f48, GE-20260512-d0fa82, GE-20260512-7f4aa4
