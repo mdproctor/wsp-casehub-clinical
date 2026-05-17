@@ -1,33 +1,42 @@
 # Handoff — casehub-clinical
-2026-05-15
+2026-05-17
 
-## What changed this session
+## What happened this session
 
-Short setup session. Cleaned up orphaned `design/.meta` + `design/JOURNAL.md` left on workspace `main` from Epic 4's fast-forward merge. Started Epic 5: both repos branched to `epic-protocol-deviation-pi-auth`, workspace scaffold committed, linked to casehubio/clinical#5.
+**LAYER-LOG.md retroactive work:** Layer 3 `🔲` placeholders filled with actual Epic 5 wiring, gotchas, and pattern steps. Layer table in `casehub-clinical.md` corrected (all 7 layers were showing "pending"; Layers 1/2/4 are complete, Layer 3 now complete). Layer table update tracked as parent#22.
 
-Blog entry added: `blog/2026-05-15-mdp01-protocol-deviation-accountability.md` — Day Zero framing for PI authorisation, covering the GCP accountability gap vs ClinicalAgent.
+**Epic 5 PI authorisation — implemented and merged to main.** Full qhorus COMMAND lifecycle: per-deviation channel (`clinical/deviation/{id}/pi-oversight`), COMMAND to named PI, Commitment auto-opened via MessageService, 6-state PiApprovalStatus, ProtocolDeviationResolvedEvent for downstream epics (6 and 13). Key classes: `ProtocolDeviationService`, `ClinicalInboundNormaliser`, `PiResponseListener`, `DeviationExpirationJob`, `DeviationResource`. Flyway migration subdirectory restructure (see CLAUDE.md). Merged to main, branch deleted.
+
+**qhorus#154 shipped mid-session (concurrent session, commit 448a631):** `InboundHumanMessage.correlationId` added to qhorus. `ClinicalInboundNormaliser` now threads it through. The explicit `commitmentService.fulfill()/decline()` calls in `PiResponseListener` are now redundant — tracked as clinical#16. Blog entry `2026-05-17-mdp01` describes state before this change.
 
 ## Current state
 
-Both repos on `epic-protocol-deviation-pi-auth`. No code written yet — brainstorm is the next step.
+- **Project repo (casehub/clinical):** `main`, 56 tests pass, 1 skipped (`PiResponseListenerIntegrationTest @Disabled` pending qhorus#153)
+- **Workspace:** `main`
+- Untracked `application.properties` in workspace root — investigate origin, likely noise
 
-```
-design/.meta   epic: epic-protocol-deviation-pi-auth, issue: 5
-design/JOURNAL.md   stub only
-```
+## Key open items
 
-## Open design question
-
-COMMAND routing for deviations isn't uniform: site-level deviations go to the site PI; protocol-significant deviations may also require sponsor notification with different deadlines and responsible parties. Classification needs to be resolved in the brainstorm before implementation.
+| Issue | What | Priority |
+|---|---|---|
+| casehubio/qhorus#153 | MessageReceivedEvent CDI hook — enables PiResponseListenerIntegrationTest | Unblocks full chain |
+| casehubio/clinical#16 | Remove redundant commitmentService calls in PiResponseListener (qhorus#154 now auto-fulfills) | After qhorus#153 |
+| casehubio/clinical#13 | Sponsor notification — MAJOR deviation escalation consumer | Epic 13 |
+| casehubio/clinical#6 | IRB gate — CRITICAL deviation escalation consumer (blocked on work#136) | Epic 6 |
+| casehubio/clinical#14 | Ledger entries on PI response and expiration | Follow-up |
+| casehubio/parent#22 | casehub-clinical.md layer table update | Next parent session |
+| casehubio/parent#28,#29 | New harness protocols (per-entity channels, InboundNormaliser scope) | Next parent session |
 
 ## What's next
 
-1. **Brainstorm** — invoke `superpowers:brainstorming` at the start of next session to design Epic 5 before writing any code
-2. Run `work-start` first for platform coherence check
+If **continuing Epic 5 follow-up**: check if qhorus#153 shipped. If yes: un-comment `@ObservesAsync` in `PiResponseListener`, remove `@Disabled` from `PiResponseListenerIntegrationTest`, bump casehub-qhorus version, then close clinical#16.
+
+If **starting Epic 6** (IRB gate): `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` already fires. Need `@ObservesAsync ProtocolDeviationResolvedEvent` listener → creates IrbApproval WorkItem. Blocked on casehubio/work#136.
 
 ## References
 
-- Blog: `blog/2026-05-15-mdp01-protocol-deviation-accountability.md`
-- Epic 5 issue: casehubio/clinical#5 (open)
-- Engine sub-case tracking: casehubio/engine#112 (open — Epic 3 still blocked)
-- Previous session detail: `git show HEAD~3:HANDOFF.md`
+- Design spec: `specs/2026-05-15-epic5-pi-authorisation-design.md`
+- Design journal: `design/JOURNAL.md`
+- Blog: `blog/2026-05-17-mdp01-pi-authorisation-ships.md`
+- LAYER-LOG.md: Layer 3 entry complete
+- Previous handover: `git show HEAD~1:HANDOFF.md`
