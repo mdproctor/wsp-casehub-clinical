@@ -7,3 +7,4 @@
 | [2026-05-12-mdp02-adverse-event-sla-wiring.md](2026-05-12-mdp02-adverse-event-sla-wiring.md) | 2026-05-12 | Epic 4 implemented — three casehub-ledger surprises and the H2 XA fix |
 | [2026-05-12-mdp03-ae-escalation-ships.md](2026-05-12-mdp03-ae-escalation-ships.md) | 2026-05-12 | Adverse event escalation ships to main |
 | [2026-05-15-mdp01-protocol-deviation-accountability.md](2026-05-15-mdp01-protocol-deviation-accountability.md) | 2026-05-15 | A deviation log isn't accountability — Day Zero for PI authorisation |
+| [2026-05-17-mdp01-pi-authorisation-ships.md](2026-05-17-mdp01-pi-authorisation-ships.md) | 2026-05-17 | PI accountability is shipped — two qhorus gaps documented |
