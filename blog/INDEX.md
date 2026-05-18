@@ -8,3 +8,4 @@
 | [2026-05-12-mdp03-ae-escalation-ships.md](2026-05-12-mdp03-ae-escalation-ships.md) | 2026-05-12 | Adverse event escalation ships to main |
 | [2026-05-15-mdp01-protocol-deviation-accountability.md](2026-05-15-mdp01-protocol-deviation-accountability.md) | 2026-05-15 | A deviation log isn't accountability — Day Zero for PI authorisation |
 | [2026-05-17-mdp01-pi-authorisation-ships.md](2026-05-17-mdp01-pi-authorisation-ships.md) | 2026-05-17 | PI accountability is shipped — two qhorus gaps documented |
+| [2026-05-18-mdp01-closing-the-ledger-loop.md](2026-05-18-mdp01-closing-the-ledger-loop.md) | 2026-05-18 | Resolution entries, normative layer hypothesis, DeviationLedgerWriter pattern |
