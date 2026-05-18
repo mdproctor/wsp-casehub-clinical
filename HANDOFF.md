@@ -1,42 +1,43 @@
 # Handoff — casehub-clinical
-2026-05-17
+2026-05-18
 
 ## What happened this session
 
-**LAYER-LOG.md retroactive work:** Layer 3 `🔲` placeholders filled with actual Epic 5 wiring, gotchas, and pattern steps. Layer table in `casehub-clinical.md` corrected (all 7 layers were showing "pending"; Layers 1/2/4 are complete, Layer 3 now complete). Layer table update tracked as parent#22.
+**Epic 5 close (orphaned):** `epic-protocol-deviation-pi-auth` `.meta` was orphaned on workspace main. Closed cleanly: DESIGN.md created from journal, specs promoted to project, issue #5 closed. Root cause noted: workspace epic branch scaffold commits land on main rather than the epic branch — recurring issue with `/epic` workflow.
 
-**Epic 5 PI authorisation — implemented and merged to main.** Full qhorus COMMAND lifecycle: per-deviation channel (`clinical/deviation/{id}/pi-oversight`), COMMAND to named PI, Commitment auto-opened via MessageService, 6-state PiApprovalStatus, ProtocolDeviationResolvedEvent for downstream epics (6 and 13). Key classes: `ProtocolDeviationService`, `ClinicalInboundNormaliser`, `PiResponseListener`, `DeviationExpirationJob`, `DeviationResource`. Flyway migration subdirectory restructure (see CLAUDE.md). Merged to main, branch deleted.
+**clinical#14 + clinical#15 shipped:** Resolution ledger entries for protocol deviation PI authorisation. Full Merkle chain now records COMMAND → APPROVED/REJECTED/ESCALATED/EXPIRED. Key design decision: `commitmentId` NOT added to ledger entries — the normative link already exists through `ProtocolDeviation.commitmentId`; a foreign key annotation doesn't test the normative hypothesis.
 
-**qhorus#154 shipped mid-session (concurrent session, commit 448a631):** `InboundHumanMessage.correlationId` added to qhorus. `ClinicalInboundNormaliser` now threads it through. The explicit `commitmentService.fulfill()/decline()` calls in `PiResponseListener` are now redundant — tracked as clinical#16. Blog entry `2026-05-17-mdp01` describes state before this change.
+**`DeviationLedgerWriter @ApplicationScoped`:** New component centralising all ledger writes for protocol deviations. Three services write to the same ledger chain; the writer owns `sequenceNumber` computation via `findLatestBySubjectId`. Protocol filed on parent: casehubio/parent#30.
+
+**Pre-existing API drift fixed:** casehub-work `WorkItemCreateRequest` gained new fields (24-param constructor); casehub-qhorus `NormalisedMessage` reverted to 3-param form (qhorus#154 artifact not yet published). Both fixed in `AdverseEventService` and `ClinicalInboundNormaliser`.
+
+**`quarkus.arc.exclude-types` pattern:** ledger SNAPSHOT ships reactive services that veto in JDBC-only test env. Documented in CLAUDE.md and DESIGN.md. Tracked casehubio/clinical#17.
 
 ## Current state
 
-- **Project repo (casehub/clinical):** `main`, 56 tests pass, 1 skipped (`PiResponseListenerIntegrationTest @Disabled` pending qhorus#153)
+- **Project repo:** `main`, 68 tests pass, 1 skipped (`PiResponseListenerIntegrationTest @Disabled` pending qhorus#153)
 - **Workspace:** `main`
-- Untracked `application.properties` in workspace root — investigate origin, likely noise
+- Workspace epic branch `epic-deviation-resolution-ledger` retained for 14-day verification (deletion due 2026-06-01)
+- Workspace epic branch `epic-multi-site-sub-case` exists with no commits — scaffold only, never used
 
 ## Key open items
 
 | Issue | What | Priority |
-|---|---|---|
-| casehubio/qhorus#153 | MessageReceivedEvent CDI hook — enables PiResponseListenerIntegrationTest | Unblocks full chain |
-| casehubio/clinical#16 | Remove redundant commitmentService calls in PiResponseListener (qhorus#154 now auto-fulfills) | After qhorus#153 |
-| casehubio/clinical#13 | Sponsor notification — MAJOR deviation escalation consumer | Epic 13 |
+|-------|------|----------|
+| casehubio/qhorus#153 | `MessageReceivedEvent` CDI hook — unblocks `PiResponseListenerIntegrationTest` | Unblocks full chain |
+| casehubio/clinical#16 | Remove redundant `commitmentService` calls in `PiResponseListener` | After qhorus#153 |
+| casehubio/clinical#18 | `DeviationExpirationJob` REQUIRES_NEW — per-deviation transaction isolation | Pre-existing structural issue |
 | casehubio/clinical#6 | IRB gate — CRITICAL deviation escalation consumer (blocked on work#136) | Epic 6 |
-| casehubio/clinical#14 | Ledger entries on PI response and expiration | Follow-up |
-| casehubio/parent#22 | casehub-clinical.md layer table update | Next parent session |
-| casehubio/parent#28,#29 | New harness protocols (per-entity channels, InboundNormaliser scope) | Next parent session |
+| casehubio/parent#30 | Protocol: multi-service LedgerEntry writer pattern | Next parent session |
 
 ## What's next
 
-If **continuing Epic 5 follow-up**: check if qhorus#153 shipped. If yes: un-comment `@ObservesAsync` in `PiResponseListener`, remove `@Disabled` from `PiResponseListenerIntegrationTest`, bump casehub-qhorus version, then close clinical#16.
+**If qhorus#153 ships:** un-comment `@ObservesAsync` in `PiResponseListener`, remove `@Disabled` from `PiResponseListenerIntegrationTest`, close clinical#16.
 
-If **starting Epic 6** (IRB gate): `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` already fires. Need `@ObservesAsync ProtocolDeviationResolvedEvent` listener → creates IrbApproval WorkItem. Blocked on casehubio/work#136.
+**If starting Epic 6 (IRB gate):** `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` already fires. Need `@ObservesAsync ProtocolDeviationResolvedEvent` listener → creates `IrbApproval` WorkItem. Blocked on casehubio/work#136.
 
 ## References
 
-- Design spec: `specs/2026-05-15-epic5-pi-authorisation-design.md`
-- Design journal: `design/JOURNAL.md`
-- Blog: `blog/2026-05-17-mdp01-pi-authorisation-ships.md`
-- LAYER-LOG.md: Layer 3 entry complete
+- Design: `DESIGN.md` (workspace main)
+- Blog: `blog/2026-05-18-mdp01-closing-the-ledger-loop.md`
 - Previous handover: `git show HEAD~1:HANDOFF.md`
