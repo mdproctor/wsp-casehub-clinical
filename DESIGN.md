@@ -109,7 +109,11 @@ Domain-specific `LedgerEntry` subclasses using JPA JOINED inheritance. All must 
 | `AdverseEventLedgerEntry` | AE reported (V1005) |
 | `ProtocolDeviationLedgerEntry` | COMMAND issued to PI (V1006); resolution events APPROVED/REJECTED/ESCALATED/EXPIRED (V1007 adds `terminal_status`, `resolved_at`) |
 
-All protocol deviation ledger writes go through `DeviationLedgerWriter @ApplicationScoped`, which owns `sequenceNumber` computation via `findLatestBySubjectId` and ensures the full COMMAND→resolution chain is recorded. Written directly by: `ProtocolDeviationService` (COMMAND), `PiResponseListener` (PI response), `DeviationExpirationJob` (expiration).
+The Merkle chain for a deviation previously had only a COMMAND entry — the obligation was recorded but not its resolution. An audit trail without a terminal entry is structurally incomplete: the inspector can see a PI was formally commanded but cannot see whether the obligation was discharged, rejected, or expired.
+
+All protocol deviation ledger writes go through `DeviationLedgerWriter @ApplicationScoped`, which owns `sequenceNumber` computation via `findLatestBySubjectId` and ensures the full COMMAND→resolution chain is recorded. Written directly by: `ProtocolDeviationService` (COMMAND), `PiResponseListener` (PI response), `DeviationExpirationJob` (expiration). The centralisation was driven by sequenceNumber integrity: three services write entries for the same subject, and without a shared owner each would independently read the latest sequence with no place to test the invariant in isolation.
+
+Resolution entries use `LedgerEntryType.EVENT` with nullable `terminal_status` and `resolved_at` columns (V1007). COMMAND entries leave both null; resolution entries populate them. A single entity class covers the full lifecycle — an acceptable trade-off over a subclass split given ledger entry schemas are already sparse by design.
 
 ### PI authorisation — casehub-qhorus
 
@@ -155,10 +159,11 @@ quarkus.arc.exclude-types=io.casehub.ledger.runtime.service.LedgerVerificationSe
   io.casehub.ledger.runtime.service.LedgerComplianceReportService,\
   io.casehub.ledger.runtime.service.LedgerRetentionJob
 ```
-When the ledger SNAPSHOT ships new services with reactive dependencies, add them here. Tracked upstream as clinical#17.
+When the ledger SNAPSHOT ships new services with reactive dependencies, add them here. The fix is a test `application.properties` entry — not a code change — but it must be updated each time the ledger SNAPSHOT adds a new reactive-dependent service. This is a recurring maintenance concern until casehub-ledger conditionally activates these services. Tracked upstream as clinical#17.
 
 **`DeviationLedgerWriter` centralises sequenceNumber and ledger construction.**
-Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites. The pattern should be followed for any future ledger subclass that is written from multiple services.
+Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. Without this, each service independently reads the latest sequence and there is no single place to test the invariant. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites and the ownership is explicit. The pattern should be followed for any future ledger subclass written from multiple services.
+
 
 ---
 
