@@ -107,7 +107,9 @@ Domain-specific `LedgerEntry` subclasses using JPA JOINED inheritance. All must 
 | Subclass | Written when |
 |----------|-------------|
 | `AdverseEventLedgerEntry` | AE reported (V1005) |
-| `ProtocolDeviationLedgerEntry` | Protocol deviation COMMAND issued to PI (V1006) |
+| `ProtocolDeviationLedgerEntry` | COMMAND issued to PI (V1006); resolution events APPROVED/REJECTED/ESCALATED/EXPIRED (V1007 adds `terminal_status`, `resolved_at`) |
+
+All protocol deviation ledger writes go through `DeviationLedgerWriter @ApplicationScoped`, which owns `sequenceNumber` computation via `findLatestBySubjectId` and ensures the full COMMAND→resolution chain is recorded. Written directly by: `ProtocolDeviationService` (COMMAND), `PiResponseListener` (PI response), `DeviationExpirationJob` (expiration).
 
 ### PI authorisation — casehub-qhorus
 
@@ -146,6 +148,18 @@ Quarkus ArC ignores `beans.xml` alternatives — `quarkus.arc.selected-alternati
 **Tests use `drop-and-create` + Flyway disabled.**
 The classpath migration collision (casehub-work V1+ and casehub-qhorus V1+) cannot be resolved in tests without excluding JARs from scanning. Drop-and-create from Hibernate schema generation avoids the problem entirely.
 
+**`quarkus.arc.exclude-types` for ledger SNAPSHOT services requiring reactive datasource.**
+casehub-ledger 0.2-SNAPSHOT ships `LedgerVerificationService`, `LedgerComplianceReportService`, and `LedgerRetentionJob` which inject `ReactiveLedgerEntryRepository` — vetoed in the JDBC-only test environment. These must be excluded in test `application.properties`:
+```properties
+quarkus.arc.exclude-types=io.casehub.ledger.runtime.service.LedgerVerificationService,\
+  io.casehub.ledger.runtime.service.LedgerComplianceReportService,\
+  io.casehub.ledger.runtime.service.LedgerRetentionJob
+```
+When the ledger SNAPSHOT ships new services with reactive dependencies, add them here. Tracked upstream as clinical#17.
+
+**`DeviationLedgerWriter` centralises sequenceNumber and ledger construction.**
+Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites. The pattern should be followed for any future ledger subclass that is written from multiple services.
+
 ---
 
 ## REST API (shipped)
@@ -178,7 +192,8 @@ No PI response endpoint — the PI's formal response arrives via `HumanParticipa
 | casehubio/qhorus#153 | `MessageReceivedEvent` CDI hook — unblocks `PiResponseListenerIntegrationTest` | Required for full integration test |
 | casehubio/clinical#6 | IRB gate — `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` | casehubio/work#136 |
 | casehubio/clinical#13 | Sponsor notification — `ProtocolDeviationResolvedEvent` with `SPONSOR_NOTIFICATION` | Connectors pattern |
-| casehubio/clinical#14 | Ledger entries on PI response and expiration | Unblocked |
-| casehubio/clinical#15 | `sequenceNumber` hardcoded to 1 | With #14 |
 | casehubio/clinical#16 | Remove redundant `commitmentService` calls (qhorus#154 auto-fulfills) | After qhorus#153 |
+| casehubio/clinical#17 | Upstream ledger fix: reactive services need conditional activation (CDI startup blocker) | casehub-ledger session |
+| casehubio/clinical#18 | `DeviationExpirationJob` REQUIRES_NEW — per-deviation transaction isolation | Refactor + test restructure |
+| casehubio/clinical#19 | Inject `Clock` into `DeviationLedgerWriter` for deterministic timestamps | Low priority |
 | casehubio/aml#20 | AML Flyway classpath collision — same fix as clinical | AML session |
