@@ -1,0 +1,11 @@
+epic: epic-deviation-resolution-ledger
+project-sha: abbf16b39af0c6015e42ca2fb09e3ab1b775cbc3
+date: 2026-05-18
+issue: 14
+design-section-hashes:
+  8b24c654 ## Module Structure
+  a0790a8f ## Domain Model
+  12fb89a7 ## Platform Integration
+  660c0496 ## Key Architecture Decisions
+  e424b239 ## REST API (shipped)
+  148a3dc9 ## Open / Deferred
