@@ -1,0 +1,12 @@
+epic: issue-18-deviation-expiration-requires-new
+project-sha: 755b1eb4111d4382828e664d476d0921e433c16b
+date: 2026-05-19
+issue: 18
+flyway-next-v: none
+design-section-hashes:
+  8b24c654 ## Module Structure
+  a0790a8f ## Domain Model
+  12fb89a7 ## Platform Integration
+  660c0496 ## Key Architecture Decisions
+  e424b239 ## REST API (shipped)
+  148a3dc9 ## Open / Deferred
