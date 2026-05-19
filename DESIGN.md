@@ -199,6 +199,6 @@ No PI response endpoint — the PI's formal response arrives via `HumanParticipa
 | casehubio/clinical#13 | Sponsor notification — `ProtocolDeviationResolvedEvent` with `SPONSOR_NOTIFICATION` | Connectors pattern |
 | casehubio/clinical#16 | Remove redundant `commitmentService` calls (qhorus#154 auto-fulfills) | After qhorus#153 |
 | casehubio/clinical#17 | Upstream ledger fix: reactive services need conditional activation (CDI startup blocker) | casehub-ledger session |
-| casehubio/clinical#18 | `DeviationExpirationJob` REQUIRES_NEW — per-deviation transaction isolation | Refactor + test restructure |
 | casehubio/clinical#19 | Inject `Clock` into `DeviationLedgerWriter` for deterministic timestamps | Low priority |
+| casehubio/clinical#20 | Isolation verification test — failure of one deviation must not roll back others | Separate PR after #18 merges |
 | casehubio/aml#20 | AML Flyway classpath collision — same fix as clinical | AML session |
