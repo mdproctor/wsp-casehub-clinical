@@ -164,6 +164,11 @@ When the ledger SNAPSHOT ships new services with reactive dependencies, add them
 **`DeviationLedgerWriter` centralises sequenceNumber and ledger construction.**
 Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. Without this, each service independently reads the latest sequence and there is no single place to test the invariant. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites and the ownership is explicit. The pattern should be followed for any future ledger subclass written from multiple services.
 
+**`DeviationExpirer @ApplicationScoped` — REQUIRES_NEW per-deviation isolation.**
+`DeviationExpirationJob` previously ran the entire expiration batch in a single `@Transactional` method with a try/catch. Any JPA exception inside the loop marked the entire transaction rollback-only — the catch block's status reset also rolled back, silently undoing all previously-expired deviations. `DeviationExpirer` fixes this: `findOverdueIds()` is a short REQUIRED read; `expireOne(UUID)` is REQUIRES_NEW — each deviation commits or rolls back independently. A failure on one deviation does not affect others. `DeviationExpirer` must be a separate CDI bean (not a method on `DeviationExpirationJob`) so REQUIRES_NEW fires through the proxy.
+
+**XA is required in both production and test `application.properties`.**
+Any service writing to both datasources (default + qhorus) in a single transaction requires Agroal's XA mode. Without it, Agroal silently fails to enlist the second datasource. `ProtocolDeviationService`, `DeviationExpirer`, and `AdverseEventService` all write cross-datasource. XA was previously configured in test properties only — a latent production gap closed in clinical#18.
 
 ---
 
