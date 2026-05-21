@@ -10,3 +10,4 @@
 | [2026-05-17-mdp01-pi-authorisation-ships.md](2026-05-17-mdp01-pi-authorisation-ships.md) | 2026-05-17 | PI accountability is shipped — two qhorus gaps documented |
 | [2026-05-18-mdp01-closing-the-ledger-loop.md](2026-05-18-mdp01-closing-the-ledger-loop.md) | 2026-05-18 | Resolution entries, normative layer hypothesis, DeviationLedgerWriter pattern |
 | [2026-05-19-mdp01-qhorus153-cascade.md](2026-05-19-mdp01-qhorus153-cascade.md) | 2026-05-19 | qhorus#153 ships, CDI transaction surprises, clinical#18/#19/#20 done |
+| [2026-05-21-mdp01-sponsor-notification.md](2026-05-21-mdp01-sponsor-notification.md) | 2026-05-21 | GCP §4.5 sponsor notification — domain data vs config, SPI extensibility, two CDI surprises |
