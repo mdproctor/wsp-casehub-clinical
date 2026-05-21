@@ -1,7 +1,0 @@
-branch: issue-13-sponsor-notification
-project-sha: ab3b3fc21867e44999f290b86a733ed99759d455
-date: 2026-05-21
-issue: 13
-flyway-next-v: none
-design-repo: workspace
-design-section-hashes: b639b9af:## Module Structure|436ec511:## Domain Model|29ede4e9:## Platform Integration|e2e77a66:## Key Architecture Decisions|a0332431:## REST API (shipped)|282a6827:## Open / Deferred|
