@@ -1,0 +1,7 @@
+branch: issue-6-irb-gate
+project-sha: 718b523d5f91d3c1dbb74a16e063ac151a695e6f
+date: 2026-05-22
+issue: 6
+flyway-next-v: V109 (default), V1009 (qhorus)
+design-repo: workspace
+design-section-hashes:
