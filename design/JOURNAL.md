@@ -1,1 +1,1 @@
-# Design Journal — issue-13-sponsor-notification
+# Design Journal — issue-24-minor-cleanups

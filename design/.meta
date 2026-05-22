@@ -1,0 +1,7 @@
+branch: issue-24-minor-cleanups
+project-sha: 972c5b69413d7495c982279d89d3d0847436d889
+date: 2026-05-22
+issue: 24,25,15
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: b639b9af:## Module Structure|436ec511:## Domain Model|29ede4e9:## Platform Integration|e2e77a66:## Key Architecture Decisions|a0332431:## REST API (shipped)|282a6827:## Open / Deferred|
