@@ -1,43 +1,37 @@
 # Handoff — casehub-clinical
-2026-05-22
+2026-05-22 (session 2)
 
 ## What happened this session
 
-**issue-24-minor-cleanups closed** — three issues in one branch:
-- #24: `TestSlackConnector` static → `@Singleton` instance (`reset()`/`sent()`/`setShouldThrow()`). Key finding: `@ApplicationScoped` CDI proxies swallow field access — `@Singleton` bypasses the proxy. `CopyOnWriteArrayList` retained for `@ObservesAsync` cross-thread safety.
-- #25: `SponsorNotificationListener` log split (trial-not-found vs incomplete-config), `buildTitle()` uses `req.severity().name()` not hardcoded MAJOR, two partial-config test cases added.
-- #15: `AdverseEventLedgerWriter` extracted from `AdverseEventService` — owns `nextSequenceNumber()` via `findLatestBySubjectId()`, follows `DeviationLedgerWriter` pattern. Ready for Epic 4 resolution entries.
-- Unplanned: `ActorType` moved to `io.casehub.platform.api.identity` in SNAPSHOT — fixed across 9 files; casehubio/parent#40 filed for sibling repos.
+**Doc alignment and housekeeping only — no code changes.**
 
-**97 tests, 0 failures.** Both repos on `main`. Fork pushed.
+- Verified `WorkItemLifecycleAdapter` in `engine/work-adapter/` is fully implemented (Javadoc cites work#136 directly). Epic 6 confirmed unblocked.
+- LAYER-LOG.md Layer 4: added `AdverseEventLedgerWriter` to key files list; added "Extended in clinical#15" section.
+- CLAUDE.md: added Design Phase References section (concern-driven lookup table), Tutorial Structure with ✅ layer status, fixed stale Foundation Gates entry (work#136 now ✅). Aligned with AML's tutorial-layer discipline.
+- LAYER-LOG.md header: removed dead placeholder mechanism, aligned with AML framing.
+
+**97 tests, 0 failures.** Both repos on `main`.
 
 ## Current state
 
 - **Project repo:** `main`, 97 tests pass
 - **Workspace:** `main`
-- **PR to upstream:** not opened — offer at start of next session if desired
-- Blog: `2026-05-22-mdp01-proxy-singleton-writer.md` published to mdproctor.github.io
-- Garden: GE-20260522-99b6a0 (@ApplicationScoped proxy), GE-20260522-bc642c (@ObservesAsync ArrayList)
+- Blog: `2026-05-22-mdp02-before-next-layer-sweep.md` committed
+
+## Stale workspace branches (not cleaned up — low priority)
+
+Three workspace-only branches with no matching project branch:
+- `epic-deviation-resolution-ledger` (4d ago, workspace only)
+- `epic-multi-site-sub-case` (4d ago, workspace only)
+- `issue-18-deviation-expiration-requires-new` (3d ago, workspace only)
+- `issue-24-minor-cleanups` (marked for deletion 2026-06-05 — normal)
 
 ## Key open items
 
-| Issue | What | Priority |
-|-------|------|----------|
-| casehubio/clinical#6 | IRB gate — CRITICAL deviation consumer | Epic 6 — unblocked (work#136 closed) |
-| casehubio/clinical#11 | Adverse event safety officer notification | After connectors pattern |
-| casehubio/parent#40 | Audit ActorType import in sibling repos | Next parent session |
+*Unchanged — `git show HEAD~1:HANDOFF.md`*
 
 ## What's next
 
-**Epic 6 (IRB gate) is unblocked** — work#136 closed this session. `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` → `IrbApproval` WorkItem. Need to verify the engine-side `WorkItemLifecycleEvent` → `CONTEXT_CHANGED` adapter is implemented in casehub-engine before starting.
+*Unchanged — `git show HEAD~1:HANDOFF.md`*
 
-| # | Description | Scale | Complexity | Notes |
-|---|-------------|-------|------------|-------|
-| #6 | IRB gate — full CRITICAL deviation path | L | High | Verify engine adapter first |
-| #11 | AE safety officer notification via connectors | M | Med | After connectors pattern |
-
-## References
-
-- Design: `DESIGN.md` (workspace main — journal merged this session)
-- Blog: `blog/2026-05-22-mdp01-proxy-singleton-writer.md`
-- Previous handover: `git show HEAD~1:HANDOFF.md`
+**Immediate next step:** Start Epic 6 — IRB gate (clinical#6). `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` → `IrbApproval` WorkItem. Engine adapter confirmed ready.
