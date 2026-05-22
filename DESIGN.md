@@ -113,6 +113,8 @@ The Merkle chain for a deviation previously had only a COMMAND entry — the obl
 
 All protocol deviation ledger writes go through `DeviationLedgerWriter @ApplicationScoped`, which owns `sequenceNumber` computation via `findLatestBySubjectId` and ensures the full COMMAND→resolution chain is recorded. Written directly by: `ProtocolDeviationService` (COMMAND), `PiResponseListener` (PI response), `DeviationExpirationJob` (expiration). The centralisation was driven by sequenceNumber integrity: three services write entries for the same subject, and without a shared owner each would independently read the latest sequence with no place to test the invariant in isolation.
 
+All adverse event ledger writes go through `AdverseEventLedgerWriter @ApplicationScoped`, following the same pattern. Currently one entry per event (`writeReportEntry`); Epic 4's resolution and escalation entries will extend this class rather than scatter new write sites across services.
+
 Resolution entries use `LedgerEntryType.EVENT` with nullable `terminal_status` and `resolved_at` columns (V1007). COMMAND entries leave both null; resolution entries populate them. A single entity class covers the full lifecycle — an acceptable trade-off over a subclass split given ledger entry schemas are already sparse by design.
 
 ### PI authorisation — casehub-qhorus
@@ -152,17 +154,11 @@ Quarkus ArC ignores `beans.xml` alternatives — `quarkus.arc.selected-alternati
 **Tests use `drop-and-create` + Flyway disabled.**
 The classpath migration collision (casehub-work V1+ and casehub-qhorus V1+) cannot be resolved in tests without excluding JARs from scanning. Drop-and-create from Hibernate schema generation avoids the problem entirely.
 
-**`quarkus.arc.exclude-types` for ledger SNAPSHOT services requiring reactive datasource.**
-casehub-ledger 0.2-SNAPSHOT ships `LedgerVerificationService`, `LedgerComplianceReportService`, and `LedgerRetentionJob` which inject `ReactiveLedgerEntryRepository` — vetoed in the JDBC-only test environment. These must be excluded in test `application.properties`:
-```properties
-quarkus.arc.exclude-types=io.casehub.ledger.runtime.service.LedgerVerificationService,\
-  io.casehub.ledger.runtime.service.LedgerComplianceReportService,\
-  io.casehub.ledger.runtime.service.LedgerRetentionJob
-```
-When the ledger SNAPSHOT ships new services with reactive dependencies, add them here. The fix is a test `application.properties` entry — not a code change — but it must be updated each time the ledger SNAPSHOT adds a new reactive-dependent service. This is a recurring maintenance concern until casehub-ledger conditionally activates these services. Tracked upstream as clinical#17.
-
 **`DeviationLedgerWriter` centralises sequenceNumber and ledger construction.**
-Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. Without this, each service independently reads the latest sequence and there is no single place to test the invariant. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites and the ownership is explicit. The pattern should be followed for any future ledger subclass written from multiple services.
+Rather than each service constructing `ProtocolDeviationLedgerEntry` instances directly, all writes go through `DeviationLedgerWriter`. Without this, each service independently reads the latest sequence and there is no single place to test the invariant. This ensures sequenceNumber is computed consistently from `findLatestBySubjectId` across all write sites and the ownership is explicit. `AdverseEventLedgerWriter` follows the same pattern for the adverse event lifecycle.
+
+**`@Mock` test doubles that require direct field access must use `@Singleton`, not `@ApplicationScoped`.**
+`@ApplicationScoped` beans in Quarkus ArC are subclass-proxied. Direct field access on an injected proxy reads the proxy's own field (always empty), not the delegate's — Java field access is not virtualised through the CDI proxy dispatch mechanism. `@Singleton` beans are injected directly with no proxy, so field access and method calls both hit the real instance. `TestSlackConnector` uses `@Singleton` and `CopyOnWriteArrayList` (required because `SponsorNotificationIntegrationTest` uses `@ObservesAsync`, which dispatches on a managed executor thread).
 
 **`DeviationExpirer @ApplicationScoped` — REQUIRES_NEW per-deviation isolation.**
 `DeviationExpirationJob` previously ran the entire expiration batch in a single `@Transactional` method with a try/catch. Any JPA exception inside the loop marked the entire transaction rollback-only — the catch block's status reset also rolled back, silently undoing all previously-expired deviations. `DeviationExpirer` fixes this: `findOverdueIds()` is a short REQUIRED read; `expireOne(UUID)` is REQUIRES_NEW — each deviation commits or rolls back independently. A failure on one deviation does not affect others. `DeviationExpirer` must be a separate CDI bean (not a method on `DeviationExpirationJob`) so REQUIRES_NEW fires through the proxy.
@@ -199,11 +195,5 @@ No PI response endpoint — the PI's formal response arrives via `HumanParticipa
 
 | Issue | What | Blocker |
 |-------|------|---------|
-| casehubio/qhorus#153 | `MessageReceivedEvent` CDI hook — unblocks `PiResponseListenerIntegrationTest` | Required for full integration test |
-| casehubio/clinical#6 | IRB gate — `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` | casehubio/work#136 |
-| casehubio/clinical#13 | Sponsor notification — `ProtocolDeviationResolvedEvent` with `SPONSOR_NOTIFICATION` | Connectors pattern |
-| casehubio/clinical#16 | Remove redundant `commitmentService` calls (qhorus#154 auto-fulfills) | After qhorus#153 |
-| casehubio/clinical#17 | Upstream ledger fix: reactive services need conditional activation (CDI startup blocker) | casehub-ledger session |
-| casehubio/clinical#19 | Inject `Clock` into `DeviationLedgerWriter` for deterministic timestamps | Low priority |
-| casehubio/clinical#20 | Isolation verification test — failure of one deviation must not roll back others | Separate PR after #18 merges |
+| casehubio/clinical#6 | IRB gate — `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` | — |
 | casehubio/aml#20 | AML Flyway classpath collision — same fix as clinical | AML session |
