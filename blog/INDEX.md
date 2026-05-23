@@ -13,3 +13,4 @@
 | [2026-05-21-mdp01-sponsor-notification.md](2026-05-21-mdp01-sponsor-notification.md) | 2026-05-21 | GCP §4.5 sponsor notification — domain data vs config, SPI extensibility, two CDI surprises |
 | [2026-05-22-mdp01-proxy-singleton-writer.md](2026-05-22-mdp01-proxy-singleton-writer.md) | 2026-05-22 | @ApplicationScoped proxy trap, @Singleton test doubles, AdverseEventLedgerWriter extraction |
 | [2026-05-22-mdp02-before-next-layer-sweep.md](2026-05-22-mdp02-before-next-layer-sweep.md) | 2026-05-22 | LAYER-LOG gap closed, CLAUDE.md aligned with AML tutorial discipline, Epic 6 unblocked |
+| [2026-05-23-mdp01-layer-5-engine-arrives.md](2026-05-23-mdp01-layer-5-engine-arrives.md) | 2026-05-23 | casehub-engine lands in clinical — IRB gate, AE routing, CDI hell, and the `when` field that does nothing |
