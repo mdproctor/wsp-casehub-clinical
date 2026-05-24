@@ -1,0 +1,8 @@
+branch: epic-3-multi-site-sub-case
+project-sha: 98aa196f14bde42a001d338ad0436fa9c7b29276
+date: 2026-05-24
+issue: 3
+issue-repo: casehubio/clinical
+flyway-next-v: 110
+design-repo: workspace
+design-section-hashes:
