@@ -15,3 +15,5 @@
 | [2026-05-22-mdp01-proxy-singleton-writer.md](2026-05-22-mdp01-proxy-singleton-writer.md) | 2026-05-22 | @ApplicationScoped proxy trap, @Singleton test doubles, AdverseEventLedgerWriter extraction |
 | [2026-05-22-mdp02-before-next-layer-sweep.md](2026-05-22-mdp02-before-next-layer-sweep.md) | 2026-05-22 | LAYER-LOG gap closed, CLAUDE.md aligned with AML tutorial discipline, Epic 6 unblocked |
 | [2026-05-23-mdp01-layer-5-engine-arrives.md](2026-05-23-mdp01-layer-5-engine-arrives.md) | 2026-05-23 | casehub-engine lands in clinical — IRB gate, AE routing, CDI hell, and the `when` field that does nothing |
+| [2026-05-24-mdp01-what-the-test-suite-isnt-telling-you.md](2026-05-24-mdp01-what-the-test-suite-isnt-telling-you.md) | 2026-05-24 | Production CDI failures hidden by green tests — two root causes |
+| [2026-05-25-mdp01-what-a-sub-case-is-for.md](2026-05-25-mdp01-what-a-sub-case-is-for.md) | 2026-05-25 | Layer 6: rejecting site sub-cases, JQ to_entries[] silent failure, Agroal deadlock |
