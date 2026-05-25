@@ -122,12 +122,12 @@ spec:
     - name: dsmb-rollup
       on:
         contextChange:
-          filter: "[.grade4Active // {} | to_entries | select(.value == true) | length] >= 2"
+          filter: "[.grade4Active // {} | to_entries[] | select(.value == true)] | length >= 2"
       humanTask:
         title: "DSMB review — simultaneous Grade 4+ events at multiple sites"
         expiresIn: PT48H
         candidateGroups: [dsmb]
-        inputMapping: "{ trialId: .trialId, activeSites: [.grade4Active | to_entries | select(.value == true) | .key] }"
+        inputMapping: "{ trialId: .trialId, activeSites: [.grade4Active // {} | to_entries[] | select(.value == true) | .key] }"
         outputMapping: "{ dsmbReview: . }"
 ```
 
