@@ -1,43 +1,34 @@
 # Handoff — casehub-clinical
-2026-05-24
+2026-05-25
 
 ## What happened this session
 
-Maintenance session post-Epic 6. Squashed 69 commits to 11 (pushed to both remotes). Added GitHub Actions CI (Build and Test + Publish workflows) — green. Fixed two production CDI failures hidden by the test suite: `casehub-engine-persistence-hibernate` missing from production classpath, and `quarkus.datasource.reactive=false` needed in production `application.properties` as well as test. CLAUDE.md synced (engine#112 closed, production CDI wiring conventions). Parent deep-dive (`docs/repos/casehub-clinical.md`) edited locally — **not yet committed in parent session**.
+Layer 6 complete: trial-level blackboard aggregation + DSMB rollup (Epic 3, casehubio/clinical#3 closed). Key design decision: no site sub-cases — sites are domain entities, sub-case model is for bounded delegated work. Two production-masking bugs caught: JQ `to_entries | select()` silently fails (needs `to_entries[]`), and `@Transactional + startCase().join()` deadlocks the Agroal pool (three-phase activation is the fix — ADR 0004).
 
 ## Current state
 
-- **Project repo:** `main` — CI green (98aa196)
+- **Project repo:** `main` — 135 tests passing (eb72e81)
 - **Workspace:** `main`
-- Blog: `2026-05-24-mdp01-what-the-test-suite-isnt-telling-you.md`
-- Both remotes (mdproctor + casehubio) in sync
+- **PR:** casehubio/clinical#35 — pending upstream merge to casehubio/clinical
+- Blog: `2026-05-25-mdp01-what-a-sub-case-is-for.md`
+- Garden: GE-20260525-d5b5eb (JQ `to_entries[]`), GE-20260525-6f8b88 (`@Transactional+join` deadlock)
 
 ## Outstanding
 
-- **Parent repo commit needed** — `docs/repos/casehub-clinical.md` was edited at `/Users/mdproctor/claude/casehub/parent/docs/repos/casehub-clinical.md` but not committed. Run from parent session: `git -C /Users/mdproctor/claude/casehub/parent add docs/repos/casehub-clinical.md && git -C /Users/mdproctor/claude/casehub/parent commit -m "docs: update casehub-clinical deep-dive — Layers 1–5 complete, Layer 6 blocked\n\nCloses #49" && git -C /Users/mdproctor/claude/casehub/parent push`
+- **casehubio/parent#71** — sync `docs/repos/casehub-clinical.md` (Layer 6 complete, Layer 6→7 ordering corrected, Epic 3 status, new services). Run from parent session.
+- **casehubio/clinical#34** — minor review findings (M1–M4): YAML test string assertion, Javadoc layer ref, spec naming drift, error response style.
+- **casehubio/clinical PR#35** — pending upstream merge; check before starting Layer 7.
 
 ## Stale workspace branches
 
-*Unchanged — `git show HEAD~1:HANDOFF.md`* (epic-deviation-resolution-ledger, epic-multi-site-sub-case, issue-18-deviation-expiration-requires-new, issue-24-minor-cleanups, issue-6-irb-gate due deletion 2026-06-05/06). Note: epic-deviation-resolution-ledger and epic-multi-site-sub-case lack EPIC-CLOSED.md — pre-date work-end discipline.
-
-Backup branches: `backup/pre-squash-main-20260519` and `backup/pre-squash-main-20260523` (local only).
-
-## Key open items
-
-*Unchanged — `git show HEAD~1:HANDOFF.md`* — except engine#112 is now CLOSED (2026-05-15). Layer 6 is structurally unblocked but engine CI is red (PR#334 broke HumanTaskScheduleHandlerTest with new DELEGATED state).
-
-| Issue | What | Priority |
-|-------|------|----------|
-| casehubio/clinical#11 | AE safety officer notification via connectors | After connectors pattern |
-| casehubio/engine PR#334 | DELEGATED state broke work-adapter tests — blocks clean SNAPSHOT | Engine team |
-| casehubio/parent#49 | Sync casehub-clinical.md — file edited, needs parent session commit | Next parent session |
+*Unchanged — `git show HEAD~1:HANDOFF.md`* (epic-deviation-resolution-ledger, epic-multi-site-sub-case, issue-18-deviation-expiration-requires-new, issue-24-minor-cleanups, issue-6-irb-gate due deletion 2026-06-05/06). Backup branches: `backup/pre-squash-main-20260519`, `backup/pre-squash-main-20260523` (local only).
 
 ## What's next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #11 | AE safety officer notification via connectors | M | Med | After connectors pattern established |
-| Layer 6 | Multi-site sub-case + DSMB rollup | XL | High | Unblocked when engine PR#334 merges cleanly |
-| Layer 7 | Trust routing + ClinicalAgent comparison | XL | High | After Layer 6 |
+| Layer 7 | Trust routing + ClinicalAgent comparison | XL | High | Start after PR#35 merges |
+| #11 | AE safety officer notification via connectors | M | Med | Can start any time |
+| #34 | Minor review findings (M1–M4) | XS | Low | Quick cleanup |
 
-**Immediate next step:** Check engine PR#334 status — if merged and CI green, Layer 6 is unblocked. Otherwise work on clinical#11.
+**Immediate next step:** Check casehubio/clinical PR#35 status — if merged, start Layer 7. If still open, work on #11 or #34.
