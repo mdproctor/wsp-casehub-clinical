@@ -69,7 +69,8 @@
       "Bash(javap -cp ~/.m2/repository/io/casehub/casehub-work/0.2-SNAPSHOT/casehub-work-0.2-SNAPSHOT.jar io.casehub.work.runtime.service.WorkItemService)",
       "Bash(javap *)",
       "Bash(awk -F'/' '{NF--; print $0}' OFS='/')",
-      "Bash(grep \"/$\")"
+      "Bash(grep \"/$\")",
+      "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical show {}:runtime/src/main/resources/db/migration/default/V110__trial_engine_case_id.sql)"
     ]
   }
 }
