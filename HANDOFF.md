@@ -13,6 +13,10 @@ S/XS cleanup: closed #34 (M1–M4 review findings), #36 (POM runtime scope), #31
 - Blog: `2026-05-25-mdp01-services-dont-know-http.md`
 - Garden: GE-20260525-65a5c1 (debugf/tracef in observers), GE-20260525-00cbde (JAX-RS coupling in services)
 
+## Actioned from casehub-life session (2026-05-26)
+
+- **clinical#38 CLOSED** — commit `66bb3e9` on main: LAYER-LOG.md updated — Layer 1 heading "Naive Java" → "Domain baseline", architectural note updated (DefaultXxxService not NaiveXxxService), navigation lines added to all 6 completed layers.
+
 ## Issues filed from casehub-life session (2026-05-26)
 
 - **clinical#38** — add layer navigation index to LAYER-LOG.md: explicit `**Navigation:** git log --grep="#N"` line per layer entry, plus update LAYER-LOG terminology ("domain baseline" not "naive Java", "integrate" not "adopt") and add augmented format sections (accountability gaps table, architectural decisions, pattern anchor) per casehubio/parent#74
