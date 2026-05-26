@@ -16,6 +16,8 @@ S/XS cleanup: closed #34 (M1–M4 review findings), #36 (POM runtime scope), #31
 ## Outstanding
 
 - **casehubio/clinical#11** — AE safety officer notification via connectors · M · Med · Can start any time
+- ~~clinical#12~~ ✅ closed by parent session 2026-05-26 — CLAUDE.md agentic harness framing and LAYER-LOG already in place
+- clinical#28 (AeEscalationListener uses engine.internal.event) — blocked on engine fix (`@ConsumeEvent(blocking=true)` on CaseStartedEventHandler); investigated by parent session 2026-05-26, no engine-side public SPI event exists yet
 
 ## Stale workspace branches
 
