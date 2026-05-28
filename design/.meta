@@ -1,0 +1,8 @@
+branch: issue-28-engine-spi-cleanup
+project-sha: 66bb3e967936320ab0d4679cdacb28dc9b81f24e
+date: 2026-05-28
+issue: 28
+issue-repo: casehubio/clinical
+flyway-next-v: 111
+design-repo: workspace
+design-section-hashes:
