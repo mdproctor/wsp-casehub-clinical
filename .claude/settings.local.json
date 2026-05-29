@@ -70,7 +70,16 @@
       "Bash(javap *)",
       "Bash(awk -F'/' '{NF--; print $0}' OFS='/')",
       "Bash(grep \"/$\")",
-      "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical show {}:runtime/src/main/resources/db/migration/default/V110__trial_engine_case_id.sql)"
+      "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical show {}:runtime/src/main/resources/db/migration/default/V110__trial_engine_case_id.sql)",
+      "Skill(publish-blog)",
+      "Bash(gh pr *)",
+      "Bash(gh api *)",
+      "Skill(project-init)",
+      "Bash(mvn -f /Users/mdproctor/claude/casehub/clinical/pom.xml install -pl api --batch-mode)",
+      "Bash(mvn -f /Users/mdproctor/claude/casehub/clinical/pom.xml compile -pl api,runtime --batch-mode)",
+      "Bash(xargs -I{} sh -c 'jar tf {} 2>/dev/null | grep -l \"CasehubWorkloadProvider\" && echo {}')",
+      "Bash(mvn dependency:tree -pl runtime -f /Users/mdproctor/claude/casehub/clinical/pom.xml --batch-mode)",
+      "Bash(mvn dependency:tree -pl runtime -f /Users/mdproctor/claude/casehub/clinical/pom.xml --batch-mode -o)"
     ]
   }
 }
