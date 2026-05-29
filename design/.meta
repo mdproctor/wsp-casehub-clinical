@@ -1,0 +1,8 @@
+branch: issue-42-43-44-test-coverage
+project-sha: 054cba7891ee788b84fbd2b2fe4685a723cbc30f
+date: 2026-05-29
+issue: 42
+issue-repo: casehubio/clinical
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
