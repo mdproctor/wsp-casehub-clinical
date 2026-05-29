@@ -16,3 +16,4 @@
 | [2026-05-22-mdp02-before-next-layer-sweep.md](2026-05-22-mdp02-before-next-layer-sweep.md) | 2026-05-22 | LAYER-LOG gap closed, CLAUDE.md aligned with AML tutorial discipline, Epic 6 unblocked |
 | [2026-05-23-mdp01-layer-5-engine-arrives.md](2026-05-23-mdp01-layer-5-engine-arrives.md) | 2026-05-23 | casehub-engine lands in clinical — IRB gate, AE routing, CDI hell, and the `when` field that does nothing |
 | [2026-05-25-mdp01-services-dont-know-http.md](2026-05-25-mdp01-services-dont-know-http.md) | 2026-05-25 | JAX-RS coupling in a service bean, the debugf/tracef volume trap, and a regulatory accuracy correction |
+| [2026-05-29-mdp01-the-case-that-completed-silently.md](2026-05-29-mdp01-the-case-that-completed-silently.md) | 2026-05-29 | GoalReached vs CaseCompleted CDI gap; three-phase pattern; IrbCommitteeAssignmentPolicy SPI |
