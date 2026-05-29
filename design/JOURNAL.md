@@ -1,1 +1,9 @@
 # Design Journal — issue-11-ae-safety-officer-notification
+
+### 2026-05-29 · §Architecture
+
+Safety officer AE notification uses `AdverseEventReportedEvent` as the trigger rather than `WorkItemLifecycleEvent`. The event fires exactly once per Grade 3+ AE; the WorkItem lifecycle event was rejected because Grade 4/5 engine cases create two WorkItems (senior-safety-monitor + DSMB), which would produce duplicate notifications. The listener mirrors `SponsorNotificationListener` exactly — inline entity lookup, single SPI delegate, no routing policy layer. The original brainstorm proposed a two-tier design (`SafetyOfficerRoutingPolicy` + `SafetyOfficerNotifier`), rejected in favour of keeping the single `SafetyOfficerNotifier` SPI as the sole customisation point: deployers who need grade-based routing override the notifier and use `request.grade()` directly. `DefaultSponsorNotifier` was updated from `@Any Instance<Connector>` to `@All List<Connector>` in the same issue to eliminate a two-pattern inconsistency (garden GE-20260526-1653dc).
+
+### 2026-05-29 · §Data Model
+
+`SafetyOfficerNotificationLedgerEntry` extends `LedgerEntry` via JOINED inheritance on the qhorus datasource (V1011 migration). It records both successful and failed delivery attempts — the GCP/FDA compliance requirement (ICH E6(R3) §5.17, 21 CFR 312.32) is that the fact of notification (or failure to notify) must be independently verifiable in the tamper-evident Merkle chain. `delivered` boolean distinguishes the two outcomes; `notifiedAt` is set from `Clock.instant()` at write time. `ClinicalTrial` gained `safetyOfficerConnectorId` + `safetyOfficerDestination` (V114, VARCHAR(2048) to match the existing sponsor notification destination column). Follow-on #46 tracks actorId alignment across all ledger writers ("system" vs "clinical-service" inconsistency).
