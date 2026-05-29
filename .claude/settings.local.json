@@ -72,7 +72,8 @@
       "Bash(grep \"/$\")",
       "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical show {}:runtime/src/main/resources/db/migration/default/V110__trial_engine_case_id.sql)",
       "Skill(git-squash)",
-      "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash_todo.txt\" git rebase *)"
+      "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash_todo.txt\" git rebase *)",
+      "Skill(project-init)"
     ]
   }
 }
