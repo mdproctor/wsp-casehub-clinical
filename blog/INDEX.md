@@ -18,3 +18,4 @@
 | [2026-05-25-mdp01-services-dont-know-http.md](2026-05-25-mdp01-services-dont-know-http.md) | 2026-05-25 | JAX-RS coupling in a service bean, the debugf/tracef volume trap, and a regulatory accuracy correction |
 | [2026-05-29-mdp01-the-case-that-completed-silently.md](2026-05-29-mdp01-the-case-that-completed-silently.md) | 2026-05-29 | GoalReached vs CaseCompleted CDI gap; three-phase pattern; IrbCommitteeAssignmentPolicy SPI |
 | [2026-05-29-mdp02-the-global-alternative.md](2026-05-29-mdp02-the-global-alternative.md) | 2026-05-29 | CDI 2.0 @Priority global activation trap; signalGrade4Active consolidation; three coverage gaps closed |
+| [2026-05-30-mdp01-a-domain-event-fires-once.md](2026-05-30-mdp01-a-domain-event-fires-once.md) | 2026-05-30 | AE safety officer notification — trigger choice, SPI shape, GCP/FDA ledger compliance |
