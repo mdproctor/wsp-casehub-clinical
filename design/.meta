@@ -1,0 +1,8 @@
+branch: issue-11-ae-safety-officer-notification
+project-sha: 9d5ba20cef6a011c6e6cd8c820446ed8ac94457c
+date: 2026-05-29
+issue: 11
+issue-repo: casehubio/clinical
+flyway-next-v: 114
+design-repo: workspace
+design-section-hashes:
