@@ -1,25 +1,32 @@
 # Handoff — casehub-clinical
-2026-05-29
+2026-05-30
 
 ## What happened this session
 
-Branch `issue-42-43-44-test-coverage` designed, implemented, reviewed, and closed. Three issues delivered: #44 (grade4 lifecycle assertions), #43 (@Alternative IrbCommitteeAssignmentPolicy SPI test + rename), #42 (signalGrade4Active extracted to TrialSafetySignalService, @InjectSpy routing verification). 136 tests passing. Key CDI 2.0 gotcha: @Alternative @Priority globally enables a bean across all tests — documented in CLAUDE.md and garden (REVISE on GE-20260415-884e48).
+Branch `issue-11-ae-safety-officer-notification` designed, implemented, reviewed, and closed. Safety officer AE notification (ICH E6(R3) §5.17 / 21 CFR 312.32) shipped to casehubio/clinical main as one squashed commit. Key design decision: `AdverseEventReportedEvent` as trigger (not `WorkItemLifecycleEvent` — Grade 4/5 engine cases create two WorkItems, so the lifecycle event fires twice). `DefaultSponsorNotifier` aligned to `@All List<Connector>` in the same commit.
 
 ## Current state
 
-- **Project repo:** `main` — 136 tests passing, pushed to casehubio/clinical upstream
+- **Project repo:** `main` — 152 tests passing, pushed to both fork (mdproctor/clinical) and blessed repo (casehubio/clinical)
 - **Workspace:** `main`
-- **Blog:** `2026-05-29-mdp02-the-global-alternative.md`
-- **Garden:** GE-20260415-884e48 revised (getEnabledAlternatives() + @Priority trap)
-- **Parent issue:** casehubio/parent#99 filed (TrialSafetySignalService description drift)
+- **Blog:** `2026-05-30-mdp01-a-domain-event-fires-once.md`
+- **Garden:** GE-20260529-af0f2e (Grade 4/5 multi-WorkItem duplicate notification trap)
+- **Protocol:** PP-20260530-2ad9a4 (domain CDI events not WorkItemLifecycleEvent for triggers)
 
 ## Outstanding (filed, not yet done)
 
-- **casehubio/parent#99** — TrialSafetySignalService description drift · S · Low
+- **casehubio/clinical#45** — observer exception fallback + integration test for safety officer notification path · M · Med
+- **casehubio/clinical#46** — actorId alignment across ledger writers ("system" vs "clinical-service") · S · Low
+- **casehubio/parent#104** — sync casehub-clinical.md + PLATFORM.md for #11 completion · XS · Low
+
+## Hygiene
+
+- **`epic-multi-site-sub-case`** workspace branch — 11 days with no commits; open, blocked on engine#387
 
 ## What's next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| Layer 7 | Trust routing + ClinicalAgent comparison | XL | High | Blocked by engine#387 (dynamic candidateGroups in YAML) |
-| #11 | AE safety officer notification via connectors | M | Med | — |
+| #45 | AE safety officer observer fallback + integration test | M | Med | Follow-on from #11 |
+| #46 | actorId alignment across ledger writers | S | Low | Cross-cutting fix |
+| Layer 7 | Trust routing + ClinicalAgent comparison | XL | High | Blocked by engine#387 |
