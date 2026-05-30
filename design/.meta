@@ -1,0 +1,8 @@
+branch: issue-48-ae-irb-observer-fallback
+project-sha: 88c3107
+date: 2026-05-30
+issue: 48
+issue-repo: casehubio/clinical
+flyway-next-v: V1012
+design-repo: workspace
+design-section-hashes:
