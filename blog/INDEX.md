@@ -19,3 +19,4 @@
 | [2026-05-29-mdp01-the-case-that-completed-silently.md](2026-05-29-mdp01-the-case-that-completed-silently.md) | 2026-05-29 | GoalReached vs CaseCompleted CDI gap; three-phase pattern; IrbCommitteeAssignmentPolicy SPI |
 | [2026-05-29-mdp02-the-global-alternative.md](2026-05-29-mdp02-the-global-alternative.md) | 2026-05-29 | CDI 2.0 @Priority global activation trap; signalGrade4Active consolidation; three coverage gaps closed |
 | [2026-05-30-mdp01-a-domain-event-fires-once.md](2026-05-30-mdp01-a-domain-event-fires-once.md) | 2026-05-30 | AE safety officer notification — trigger choice, SPI shape, GCP/FDA ledger compliance |
+| [2026-05-30-mdp02-silence-is-not-an-audit-trail.md](2026-05-30-mdp02-silence-is-not-an-audit-trail.md) | 2026-05-30 | #45/#46 — observer fallback, actorId alignment, Hibernate flush timing |
