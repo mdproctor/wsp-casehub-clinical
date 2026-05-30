@@ -1,4 +1,4 @@
-# Branch Closed — epic-3-multi-site-sub-case
-**Date:** 2026-05-25
-**Issue:** #3
-**Scheduled for deletion:** 2026-06-08
+# Branch Closed — issue-45-46-ae-observer-fallback-actorid
+**Date:** 2026-05-30
+**Issue:** #45
+**Scheduled for deletion:** 2026-06-13
