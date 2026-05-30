@@ -30,6 +30,13 @@ is written — indistinguishable in the FDA audit trail from "notification never
 An end-to-end integration test covering the full safety officer notification chain
 (listener → notifier → connector → ledger) is also missing.
 
+**Out of scope — casehubio/clinical#48:** `AeEscalationListener` and `IrbDecisionListener`
+have the same class of problem but more constrained fallback data availability.
+`AeEscalationListener` derives critical IDs (aeId, enrollmentId, grade) from a reactive case
+context lookup — not from the event record — making the fallback conditional on what was
+resolved before the throw. `IrbDecisionListener` needs the loaded `IrbApproval` entity for a
+meaningful ledger subject ID. Both require separate design. See #48.
+
 ---
 
 ## Design
@@ -61,11 +68,19 @@ Apply `ClinicalActors.CLINICAL_SERVICE` everywhere the system acts as the record
 
 `IrbApprovalLedgerWriter` stays `"irb-committee"` / `ActorType.HUMAN` — unchanged.
 
-Test updates (string assertions change from `"system"` to `"clinical-service"`):
-- `AdverseEventLedgerWriterTest`
-- `SafetyOfficerNotificationLedgerWriterTest`
-- `DeviationLedgerWriterTest` (expiration-job entry)
-- `DeviationExpirationJobTest`
+`DeviationLedgerWriter` Javadoc update: the comment referencing `SYSTEM_ACTOR` and
+`ProtocolDeviationService.CLINICAL_SENDER` must be updated to reference
+`ClinicalActors.CLINICAL_SERVICE` as the canonical identity constant.
+
+Test updates (all assertions change from `"system"` to `"clinical-service"`):
+
+| Test file | Note |
+|-----------|------|
+| `AdverseEventLedgerWriterTest` | actorId assertion line |
+| `AeEscalationLedgerWriterTest` | add missing actorId assertion (currently absent) |
+| `SafetyOfficerNotificationLedgerWriterTest` | actorId assertion line |
+| `DeviationLedgerWriterTest` | expiration-job entry assertion; rename `writeResolutionEntry_expired_setsSystemActor` → `expired_uses_clinical_service_actorId` to avoid implying `"system"` |
+| `DeviationExpirationJobTest` | actorId assertion line |
 
 ### 3. Transaction model for observer fallback
 
@@ -80,9 +95,15 @@ may have already marked the session for rollback. The fallback ledger write must
 nested `REQUIRES_NEW` on the success path (one extra TX per notification). A dedicated
 `writeObserverFailureEntry()` keeps the success path unchanged.
 
+**Note on `writeEntry()` transaction contract:** `writeEntry()` carries no `@Transactional`
+annotation — it inherits the caller's TX context. When called from `DefaultSafetyOfficerNotifier.notify()`
+(REQUIRES_NEW), it runs in that TX. When called from `writeObserverFailureEntry()` (also
+REQUIRES_NEW), it inherits that fresh TX. Callers must always provide a transaction.
+
 ### 4. `SafetyOfficerNotificationLedgerWriter` — new method
 
 ```java
+/** Called from SafetyOfficerNotificationListener observer fallback path. */
 @Transactional(Transactional.TxType.REQUIRES_NEW)
 public void writeObserverFailureEntry(UUID aeId, UUID enrollmentId, UUID siteId, CtcaeGrade grade) {
     writeEntry(aeId, enrollmentId, siteId, grade, null, null, false);
@@ -91,24 +112,34 @@ public void writeObserverFailureEntry(UUID aeId, UUID enrollmentId, UUID siteId,
 ```
 
 `delivered=false + connectorId=null` is sufficient to identify observer-level failures
-vs connector delivery failures — no schema change needed.
+vs connector delivery failures (where connectorId is known) — no schema change needed.
 
 ### 5. `SafetyOfficerNotificationListener` — fallback
 
-Add `@Inject SafetyOfficerNotificationLedgerWriter ledgerWriter`. Wrap body in try/catch:
+Add `@Inject SafetyOfficerNotificationLedgerWriter ledgerWriter`. Wrap body in try/catch
+with a nested inner catch to handle the case where the DB is also unavailable
+(the most likely root cause would cause the fallback write to fail too):
 
 ```java
 try {
     // existing logic unchanged
 } catch (Exception e) {
     Log.errorf(e, "Unexpected error in safety officer notification for AE %s — writing failed ledger entry", event.aeId());
-    ledgerWriter.writeObserverFailureEntry(event.aeId(), event.enrollmentId(), event.siteId(), event.grade());
+    try {
+        ledgerWriter.writeObserverFailureEntry(event.aeId(), event.enrollmentId(), event.siteId(), event.grade());
+    } catch (Exception writeEx) {
+        Log.errorf(writeEx, "AUDIT GAP: could not write observer failure entry for AE %s", event.aeId());
+    }
 }
 ```
+
+The inner catch has nowhere to escalate — the `@ObservesAsync` dispatcher has no retry
+mechanism. The `AUDIT GAP:` prefix makes these log lines operator-searchable.
 
 ### 6. `DeviationLedgerWriter` — new method
 
 ```java
+/** Called from SponsorNotificationListener observer fallback path. */
 @Transactional(Transactional.TxType.REQUIRES_NEW)
 public void writeObserverFailureEntry(UUID deviationId, UUID siteId, DeviationSeverity severity, Instant now) {
     var entry = new ProtocolDeviationLedgerEntry();
@@ -133,15 +164,20 @@ All fields from the event record — no entity loading.
 ### 7. `SponsorNotificationListener` — fallback
 
 Add `@Inject DeviationLedgerWriter deviationLedgerWriter` and `@Inject Clock clock`.
-Early-return check stays outside try (filter, not failure). Wrap the rest:
+Early-return check stays outside try (filter, not failure). Wrap the rest with the
+same double-catch pattern:
 
 ```java
 try {
     // existing lookup + notify logic
 } catch (Exception e) {
     Log.errorf(e, "Unexpected error in sponsor notification for deviation %s — writing failed ledger entry", event.deviationId());
-    deviationLedgerWriter.writeObserverFailureEntry(
-        event.deviationId(), event.siteId(), event.severity(), clock.instant());
+    try {
+        deviationLedgerWriter.writeObserverFailureEntry(
+            event.deviationId(), event.siteId(), event.severity(), clock.instant());
+    } catch (Exception writeEx) {
+        Log.errorf(writeEx, "AUDIT GAP: could not write observer failure entry for deviation %s", event.deviationId());
+    }
 }
 ```
 
@@ -150,24 +186,40 @@ try {
 **`SafetyOfficerNotificationListenerTest` — new test:**
 `unexpected_exception_from_notifier_writes_observer_failure_entry()`
 - Configure existing `@InjectMock SafetyOfficerNotifier` to `doThrow(RuntimeException)`
-- Call `listener.onAeReported(event)`
-- Assert no exception propagates from listener
-- Inject `LedgerEntryRepository`; query `findLatestBySubjectId(aeId)`, assert `delivered=false`
-- `@Transactional` on test method so query works; `REQUIRES_NEW` on writer means entry is already committed
+- Call `listener.onAeReported(event)` — must not throw
+- Add `@Inject LedgerEntryRepository ledgerEntryRepository` to the test class
+- In the test method (annotated `@Transactional`), call `ledgerEntryRepository.findLatestBySubjectId(aeId)`, cast to `SafetyOfficerNotificationLedgerEntry`, assert `delivered=false`
+- `REQUIRES_NEW` on `writeObserverFailureEntry` commits the entry before the test query runs, even within the test's `@Transactional` context (READ_COMMITTED sees it)
 
 **`SafetyOfficerNotificationIntegrationTest` — new class:**
-- `grade3_ae_triggers_slack_notification()`: call listener directly; assert connector sent 1 message; query ledger for `delivered=true`
-- `connector_delivery_failure_writes_failed_ledger_entry()`: `slackConnector.setShouldThrow(true)`; assert `delivered=false`
-- No `@InjectMock SafetyOfficerNotificationLedgerWriter` — verifies actual DB writes
+
+Setup:
+- `@Inject SafetyOfficerNotificationListener listener` — real bean
+- `@Inject TestSlackConnector slackConnector` — real mock connector
+- `@Inject LedgerEntryRepository ledgerEntryRepository` — for DB assertions
+- `@BeforeEach @Transactional setUp()`: create `ClinicalTrial` (with `safetyOfficerConnectorId="slack"` and `safetyOfficerDestination`) and `TrialSite`. No `AdverseEvent` needed — the listener uses only event-record data (`aeId`, `enrollmentId`, `siteId`, `grade`), not DB-loaded AE fields.
+- `slackConnector.reset()` in `@BeforeEach`
+
+Call `listener.onAeReported(event)` **directly** — this is a synchronous CDI call, not `fireAsync`. `DefaultSafetyOfficerNotifier.notify()` runs in `REQUIRES_NEW` but is still synchronous from the test thread. Connector delivery and ledger write both complete before the listener returns. **No Awaitility needed.** (Contrast: `SponsorNotificationIntegrationTest` uses Awaitility because `piResponseListener.process()` fires a CDI async event internally — the delivery happens on a different thread.)
+
+Test methods:
+- `grade3_ae_triggers_safety_officer_slack_notification()`: assert `slackConnector.sent()` has 1 message with correct destination; query `ledgerEntryRepository.findLatestBySubjectId(aeId)`, cast, assert `delivered=true`
+- `connector_delivery_failure_writes_failed_ledger_entry()`: `slackConnector.setShouldThrow(true)`; assert `delivered=false` in ledger
+
+No `@InjectMock SafetyOfficerNotificationLedgerWriter` — this test verifies actual DB writes.
+
+**Interaction with `SponsorNotificationIntegrationTest`:** After #45, `SponsorNotificationListener` has a try/catch that calls `deviationLedgerWriter.writeObserverFailureEntry(...)`. That test mocks `DeviationLedgerWriter` via `@InjectMock`. Mockito's default for unstubbed void methods is `doNothing()`, so the new method requires no explicit stub and existing tests are unaffected.
 
 **`DeviationLedgerWriterTest` — new test:**
-`writeObserverFailureEntry_persists_with_null_sponsorNotifiedAt_and_correct_actor()`
+`writeObserverFailureEntry_persists_with_null_sponsorNotifiedAt_and_clinical_service_actorId()`
+Verify: `actorId = "clinical-service"`, `actorRole = "sponsor-notifier-observer-failed"`,
+`sponsorNotifiedAt = null`, `subjectId = deviationId`.
 
 ---
 
 ## Scope boundaries
 
 - No schema changes — no Flyway migrations needed
-- `IrbApprovalLedgerWriter` unchanged
-- `AeEscalationLedgerWriterTest` — add actorId assertion (currently missing)
-- Sponsor listener integration test not added (sponsor path already covered by `SponsorNotificationIntegrationTest`)
+- `IrbApprovalLedgerWriter` unchanged — `"irb-committee"` is a named external actor, not system
+- `AeEscalationListener` + `IrbDecisionListener` observer fallback deferred to casehubio/clinical#48
+- Sponsor listener integration test not added — sponsor path already covered by `SponsorNotificationIntegrationTest`
