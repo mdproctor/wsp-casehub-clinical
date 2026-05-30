@@ -3,13 +3,15 @@
 
 ## What happened this session
 
-Branch `issue-11-ae-safety-officer-notification` designed, implemented, reviewed, and closed. Safety officer AE notification (ICH E6(R3) §5.17 / 21 CFR 312.32) shipped to casehubio/clinical main as one squashed commit. Key design decision: `AdverseEventReportedEvent` as trigger (not `WorkItemLifecycleEvent` — Grade 4/5 engine cases create two WorkItems, so the lifecycle event fires twice). `DefaultSponsorNotifier` aligned to `@All List<Connector>` in the same commit.
+Docs-only session. Stripped tutorial/showcase framing from `CLAUDE.md` and `LAYER-LOG.md` in the project repo, following the arc42stories direction and using casehub-life as the reference implementation.
+
+Key changes: Agentic Harness Goals rewritten to a single production-first statement. "Tutorial Structure" → "Foundation Layers". Showcase Scenario section removed. "What it shows" → "What it adds" across all six complete LAYER-LOG layers. ClinicalAgent comparison language removed from layer bodies and gap table column headers. tutorial-strategy.md references removed. Arc42Stories migration note added to LAYER-LOG.md header. One commit: `6918cb4 docs: strip tutorial framing from CLAUDE.md and LAYER-LOG.md`.
 
 ## Current state
 
-- **Project repo:** `main` — 152 tests passing, pushed to both fork (mdproctor/clinical) and blessed repo (casehubio/clinical)
+- **Project repo:** `main` — pushed to casehubio/clinical
 - **Workspace:** `main`
-- **Blog:** `2026-05-30-mdp01-a-domain-event-fires-once.md`
+- **Blog:** `2026-05-30-mdp01-a-domain-event-fires-once.md` (unchanged from previous session)
 - **Garden:** GE-20260529-af0f2e (Grade 4/5 multi-WorkItem duplicate notification trap)
 - **Protocol:** PP-20260530-2ad9a4 (domain CDI events not WorkItemLifecycleEvent for triggers)
 
@@ -21,7 +23,8 @@ Branch `issue-11-ae-safety-officer-notification` designed, implemented, reviewed
 
 ## Hygiene
 
-- **`epic-multi-site-sub-case`** workspace branch — 11 days with no commits; open, blocked on engine#387
+- **`epic-multi-site-sub-case`** workspace branch — 12 days with no commits; open, blocked on engine#387
+- **`epic-3-multi-site-sub-case`** workspace + project — 5 days old, no closure stamp; check if merged work needs stamping
 
 ## What's next
 
@@ -29,4 +32,5 @@ Branch `issue-11-ae-safety-officer-notification` designed, implemented, reviewed
 |---|-------------|-------|------------|-------|
 | #45 | AE safety officer observer fallback + integration test | M | Med | Follow-on from #11 |
 | #46 | actorId alignment across ledger writers | S | Low | Cross-cutting fix |
-| Layer 7 | Trust routing + ClinicalAgent comparison | XL | High | Blocked by engine#387 |
+| parent#104 | Sync casehub-clinical.md + PLATFORM.md for #11 completion | XS | Low | Cross-repo doc |
+| Layer 7 | Trust routing | XL | High | Blocked by engine#387 |
