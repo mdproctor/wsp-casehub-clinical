@@ -1,0 +1,8 @@
+branch: issue-45-46-ae-observer-fallback-actorid
+project-sha: 6918cb4de7ebe07c8e957d9f60fc17bf650b5d95
+date: 2026-05-30
+issue: 45
+issue-repo: casehubio/clinical
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
