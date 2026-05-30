@@ -74,7 +74,8 @@
       "Skill(git-squash)",
       "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash_todo.txt\" git rebase *)",
       "Skill(project-init)",
-      "Skill(write-content)"
+      "Skill(write-content)",
+      "Skill(publish-blog)"
     ]
   }
 }
