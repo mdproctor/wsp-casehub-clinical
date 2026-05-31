@@ -75,7 +75,8 @@
       "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash_todo.txt\" git rebase *)",
       "Bash(awk '{print $4}')",
       "Skill(project-init)",
-      "mcp__intellij__get_all_open_file_paths"
+      "mcp__intellij__get_all_open_file_paths",
+      "Skill(write-content)"
     ]
   }
 }
