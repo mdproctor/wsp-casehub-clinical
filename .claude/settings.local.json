@@ -73,7 +73,9 @@
       "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical show {}:runtime/src/main/resources/db/migration/default/V110__trial_engine_case_id.sql)",
       "Skill(git-squash)",
       "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash_todo.txt\" git rebase *)",
-      "Bash(awk '{print $4}')"
+      "Bash(awk '{print $4}')",
+      "Skill(project-init)",
+      "mcp__intellij__get_all_open_file_paths"
     ]
   }
 }
