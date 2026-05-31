@@ -1,43 +1,46 @@
 # Handoff — casehub-clinical
-2026-05-30
+2026-05-31
 
 ## What happened this session
 
-Closed #45 (observer exception fallback) and #46 (actorId alignment). Both issues
-are in casehubio/clinical main. CLAUDE.md updated with integration test pattern for
-`@ObservesAsync` listeners (call directly, no Awaitility, REQUIRES_NEW is synchronous).
+Closed #48 (observer fallback for `AeEscalationListener` + `IrbDecisionListener`). Both listeners
+now have the double try/catch + REQUIRES_NEW pattern. Key design refinement from the previous
+session's pattern: a `ledgerWritten`/`ledgerDecisionWritten` boolean flag set after the critical
+ledger write and before `fireAsync` — without it, a caught exception after the ledger write
+commits the outer TX normally, and the REQUIRES_NEW failure entry also commits, double-recording
+the event. Context resolution moved outside the try block in `AeEscalationListener` (matching
+the IRB structure) so `enrollmentId` is always non-null in the catch. Code review caught double
+`clock.instant()` in `AeEscalationLedgerWriter.writeObserverFailureEntry` (occurredAt ≠ completedAt).
 
-Key deliverables: `ClinicalActors.CLINICAL_SERVICE` constant + five writers aligned;
-double try/catch fallback with `REQUIRES_NEW writeObserverFailureEntry` on
-`SafetyOfficerNotificationListener` and `SponsorNotificationListener`;
-`SafetyOfficerNotificationIntegrationTest` (happy path + connector failure).
-Code review caught `notifiedAt = null` violating NOT NULL schema constraint —
-fix: use `connectorId = null` as failure-mode discriminator instead.
+Build verification surfaced a `CaseLifecycleEvent` API change in the engine snapshot — `tenancyId`
+added as 2nd parameter. Fixed in `AeEscalationListenerTest`. Three lifecycle tests now fail due to
+a separate `PlanExecutionContext` constructor change — tracked as #53, not caused by this branch.
 
-- **Garden:** GE-20260530-01bcfe (NOT NULL violation at REQUIRES_NEW commit, not at save()), GE-20260530-7426b7 (nullable column as failure-mode discriminator)
-- **Protocols:** PP-20260530-d6775a (ClinicalActors.CLINICAL_SERVICE), PP-20260530-49856c (observer double try/catch)
-- **Blog:** `2026-05-30-mdp02-silence-is-not-an-audit-trail.md`
+- **Garden:** GE-20260531-ed2f7a (caught @ObservesAsync try/catch enables outer TX commit → REQUIRES_NEW also commits → double-recording)
+- **Protocols:** PP-20260530-49856c revised (ledgerWritten flag requirement added), PP-20260531-11724b new (actorRole = successRole + "-observer-failed")
+- **Blog:** `2026-05-31-mdp01-when-caught-exceptions-commit.md`
 
 ## Current state
 
 - **Project repo:** `main` — pushed to casehubio/clinical and mdproctor/clinical
 - **Workspace:** `main`
-- **Blog:** `2026-05-30-mdp02-silence-is-not-an-audit-trail.md`
+- **Backup branch:** `backup/pre-squash-main-20260531` in project repo (safe to delete after 14 days)
 
 ## Outstanding (filed, not yet done)
 
-- **casehubio/clinical#48** — observer fallback for `AeEscalationListener` + `IrbDecisionListener` · M · Med
-- **casehubio/clinical#49** — early-return audit gap (missing-config paths in notification listeners) · S · Med
+- **casehubio/clinical#49** — early-return audit gap (missing-config paths leave no ledger trace) · S · Med
+- **casehubio/clinical#52** — test coverage gaps: enrollmentId null path after markCompleted; IrbDecisionListenerTest missing approvalId assertion · XS · Low
+- **casehubio/clinical#53** — engine API incompatibility: PlanExecutionContext constructor changed; AeEscalationLifecycleTest + DsmbRollupTest + IrbGateLifecycleTest failing · S · Med
 
 ## Hygiene
 
-- **`epic-multi-site-sub-case`** workspace branch — stale, blocked on engine#387
-- **`epic-3-multi-site-sub-case`** workspace + project — check if needs closure stamp
+*Unchanged — `git show HEAD~1:HANDOFF.md` (Hygiene section)*
 
 ## What's next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #48 | AeEscalationListener + IrbDecisionListener observer fallback | M | Med | Constrained data availability — see issue for design notes |
+| #53 | Fix PlanExecutionContext incompatibility — lifecycle tests failing | S | Med | Needs engine#? — check what changed |
 | #49 | Early-return audit gap in notification listeners | S | Med | Missing-config paths leave no trace |
+| #52 | Test coverage gaps — two small additions | XS | Low | Batch into #49 session if convenient |
 | Layer 7 | Trust routing | XL | High | Blocked on engine#387 |
