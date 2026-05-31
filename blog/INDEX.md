@@ -20,3 +20,4 @@
 | [2026-05-29-mdp02-the-global-alternative.md](2026-05-29-mdp02-the-global-alternative.md) | 2026-05-29 | CDI 2.0 @Priority global activation trap; signalGrade4Active consolidation; three coverage gaps closed |
 | [2026-05-30-mdp01-a-domain-event-fires-once.md](2026-05-30-mdp01-a-domain-event-fires-once.md) | 2026-05-30 | AE safety officer notification — trigger choice, SPI shape, GCP/FDA ledger compliance |
 | [2026-05-30-mdp02-silence-is-not-an-audit-trail.md](2026-05-30-mdp02-silence-is-not-an-audit-trail.md) | 2026-05-30 | #45/#46 — observer fallback, actorId alignment, Hibernate flush timing |
+| [2026-05-31-mdp01-when-caught-exceptions-commit.md](2026-05-31-mdp01-when-caught-exceptions-commit.md) | 2026-05-31 | #48 — ledgerWritten flag, double-commit trap, AeEscalation + IrbDecision observer fallback |
