@@ -76,7 +76,12 @@
       "Bash(awk '{print $4}')",
       "Skill(project-init)",
       "Bash(xargs '-I{}' python3 -c ' *)",
-      "Skill(write-content)"
+      "Skill(write-content)",
+      "Bash(mvn dependency:get -Dartifact=io.casehub:casehub-engine:0.2-SNAPSHOT -Dtransitive=false --batch-mode -U)",
+      "Bash(printf \"branch: issue-049-early-return-audit\\\\nproject-sha: $\\(git -C /Users/mdproctor/claude/casehub/clinical rev-parse HEAD\\)\\\\ndate: 2026-06-02\\\\nissue: 49\\\\nissue-repo: casehubio/clinical\\\\nflyway-next-v: none\\\\ndesign-repo: workspace\\\\ndesign-section-hashes:\\\\n\")",
+      "Bash(gh pr create --repo casehubio/clinical --title 'feat: audit ledger entries for early-return skip paths \\(#49 + #52\\)' --body ' *)",
+      "Bash(printf \"branch: issue-057-arc42-gaps\\\\nproject-sha: $\\(git -C /Users/mdproctor/claude/casehub/clinical rev-parse HEAD\\)\\\\ndate: 2026-06-02\\\\nissue: 57\\\\nissue-repo: casehubio/clinical\\\\nflyway-next-v: none\\\\ndesign-repo: workspace\\\\ndesign-section-hashes:\\\\n\")",
+      "Bash(gh pr create --repo casehubio/clinical --title 'docs: ARC42STORIES.MD §5 gaps — L5 YAML snippet + L3 key files \\(#57\\)' --body ' *)"
     ]
   }
 }
