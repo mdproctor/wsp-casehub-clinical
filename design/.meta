@@ -1,0 +1,8 @@
+branch: issue-057-arc42-gaps
+project-sha: 50a6e0eeab9e4285ebcc3d686df6b73c78f7549a
+date: 2026-06-02
+issue: 57
+issue-repo: casehubio/clinical
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
