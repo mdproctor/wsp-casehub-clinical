@@ -1,5 +1,9 @@
 # casehub-clinical — Design
 
+> **Superseded by `ARC42STORIES.MD` in the project repo** (bootstrapped 2026-06-02, casehubio/clinical#54).
+> The domain model, SPI contracts, and key architecture decisions captured here are fully migrated to
+> `ARC42STORIES.MD §2`, `§4`, `§9.4`, and `§10`. This workspace copy is retained for git history.
+
 Living design document. Updated at each epic close via `design/JOURNAL.md` merge.
 
 **Repository:** `casehubio/clinical`
