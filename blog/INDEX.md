@@ -2,6 +2,7 @@
 
 | File | Date | Title |
 |------|------|-------|
+| [2026-06-02-mdp01-arc42stories-the-gate.md](2026-06-02-mdp01-arc42stories-the-gate.md) | 2026-06-02 | ARC42STORIES.MD bootstrapped for clinical — write-content mode enforcement, spec gate addition, and what clinical's structure requires vs devtown |
 | [2026-06-01-mdp01-what-the-build-cache-was-hiding.md](2026-06-01-mdp01-what-the-build-cache-was-hiding.md) | 2026-06-01 | CDI ambiguity revealed by augmentation cache invalidation; exclude-types limits; engine snapshot drift |
 | [2026-05-08-mdp01-clinical-foundation.md](2026-05-08-mdp01-clinical-foundation.md) | 2026-05-08 | Laying the clinical domain model |
 | [2026-05-24-mdp01-what-the-test-suite-isnt-telling-you.md](2026-05-24-mdp01-what-the-test-suite-isnt-telling-you.md) | 2026-05-24 | Two production CDI failures hidden by the test environment |
