@@ -1,3 +1,9 @@
+---
+entry_type: note
+projects: [clinical]
+tags: [gcp, compliance, ledger, cdi, quarkus, testing, async-observer]
+date: 2026-06-03
+---
 # The silent skip
 
 ICH E6(R3) §5.17 requires that the fact of non-notification — and the reason for it — be independently verifiable in the trial's audit trail. Claude and I had the failure path covered: when a notification attempt throws an unexpected exception, a REQUIRES_NEW fallback writer records a `delivered=false` entry in the Merkle chain. What we hadn't covered were the deliberate exits.
