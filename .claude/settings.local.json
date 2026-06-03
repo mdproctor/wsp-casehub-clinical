@@ -76,7 +76,10 @@
       "Bash(awk '{print $4}')",
       "Skill(project-init)",
       "Bash(xargs '-I{}' python3 -c ' *)",
-      "Skill(write-content)"
+      "Skill(write-content)",
+      "Skill(publish-blog)",
+      "Bash(date -v +14d +%Y-%m-%d)",
+      "Bash(printf '# Branch Closed — issue-057-arc42-gaps\\\\n**Date:** __TRACKED_VAR__\\\\n**Issue:** #57\\\\n**Scheduled for deletion:** __TRACKED_VAR__\\\\n')"
     ]
   }
 }
