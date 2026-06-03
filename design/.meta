@@ -1,0 +1,8 @@
+branch: issue-51-sx-sweep
+project-sha: 8376cff48dfe1ac81813fbc9157b82632a2678a7
+date: 2026-06-03
+issue: 51
+issue-repo: casehubio/clinical
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
