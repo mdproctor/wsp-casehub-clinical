@@ -1,5 +1,4 @@
-# Branch Closed — epic-multi-site-sub-case
-**Date:** 2026-05-10
-**Issue:** #3
-**Scheduled for deletion:** 2026-05-24
-**Note:** Scaffold only — no work done on this branch. Overdue for deletion.
+# Branch Closed — issue-51-sx-sweep
+**Date:** 2026-06-04
+**Issues:** #51 (already done), #22 (PATCH /trials/{id}/sponsor-config), #23 (PiIdentityResolver SPI)
+**Status:** Merged to upstream/main and origin/main
