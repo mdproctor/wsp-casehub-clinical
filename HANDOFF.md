@@ -1,17 +1,13 @@
 # Handoff — casehub-clinical
-2026-06-03
+2026-06-04
 
 ## What happened this session
 
-Confirmed engine snapshot published `startCase(CaseDefinition, Object)` — closed #53, 177 tests green with no changes in clinical.
+Swept the S/XS open issues. #51 was already done (CaseLifecycleEvent tenancyId update). Shipped #22 (`PATCH /trials/{id}/sponsor-config`, full-replace semantics, no migration) and #23 (`PiIdentityResolver` SPI — PI actor ID to formal name resolution for GCP-regulated sponsor notifications).
 
-Implemented #49 + #52 (PR#56): wrote `delivered=false` ledger entries with distinct `actorRole` per reason for every deliberate skip path in `SafetyOfficerNotificationListener` and `SponsorNotificationListener`. V1013 migration makes `site_id`/`enrollment_id` nullable (absent by definition for no-site-id skips). Fixed `AdverseEventServiceTest` flake caused by `@ObservesAsync` listener committing REQUIRES_NEW skip entry before the assertion ran — filter `findBySubjectId` by subclass type, not total count.
+#23 required three spec review rounds. The key design insight: resolution belongs in `SponsorNotificationListener`, not `DefaultSponsorNotifier` — resolution failures get a distinct audit role (`sponsor-notifier-pi-resolver-failed`) from delivery failures. Resolved name flows into `SponsorNotificationRequest.piDisplayName` and into `ProtocolDeviationLedgerEntry.piDisplayName` (V1014 migration), closing a GCP compliance gap where the audit trail recorded delivery status but not which PI was notified.
 
-Filled ARC42STORIES.MD §5 gaps (PR#58, merged to upstream): L5 YAML `contextChange.filter` snippet + L3 `SafetyOfficerNotificationLedgerEntry` key files. Self-assessment updated.
-
-- **Blog:** `2026-06-03-mdp01-the-silent-skip.md`
-- **Garden:** GE-20260602-9ae24a (`@ObservesAsync` REQUIRES_NEW contamination)
-- **Protocol:** PP-20260603-f661dd (notification listener skip-path audit)
+Both commits landed on upstream/main. ARC42STORIES.MD stale scan cleared 5 closed issues from Active Risks / Technical Debt tables.
 
 ## Current state
 
@@ -20,13 +16,12 @@ Filled ARC42STORIES.MD §5 gaps (PR#58, merged to upstream): L5 YAML `contextCha
 
 ## Outstanding
 
-- **PR#56** — early-return audit gaps (issue-049-early-return-audit) — awaiting review/merge · M · Med
-- **casehubio/parent#144** — duplicate `## Writing Style` section in arc42stories-spec.md · XS · Low (fix in parent session)
-- Workspace branch `epic-multi-site-sub-case` overdue for deletion (was due 2026-05-24, scaffold-only)
+- Workspace branch `epic-multi-site-sub-case` past deletion window (scaffold-only, EPIC-CLOSED.md present) — retained per policy, no action needed
 
 ## What's next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | AML migration | Bootstrap ARC42STORIES.MD for AML following clinical pattern | L | Med | arc42stories-spec.md gate now in place |
-| Layer 7 | Trust routing | XL | High | Blocked on engine#387 |
+| Layer 7 | Trust routing | XL | High | Blocked on engine#387 (open) |
+| #21 | DurableSponsorNotifier — entity + retry semantics + own ledger subtype | M | Med | `PiIdentityResolver` already wired in listener — notifier gets piDisplayName via request field |
