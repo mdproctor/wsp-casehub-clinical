@@ -1,0 +1,9 @@
+branch: issue-21-durable-sponsor-notifier
+project-sha: 70e29348ebb7afa5dd2bddd155959cb6fd6f664a
+date: 2026-06-05
+issue: 21
+issue-repo: casehubio/clinical
+covers: 21
+flyway-next-v: 115 (default datasource); 2000 (qhorus datasource — first in V2000+ ledger subclass range per protocol)
+design-repo: workspace
+design-section-hashes:
