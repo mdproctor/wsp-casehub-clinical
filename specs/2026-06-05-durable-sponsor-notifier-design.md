@@ -222,15 +222,27 @@ class SponsorNotificationRetryJob {
 
 Per GE-20260522-44bbf3: the loop is not transactional. One notification throwing must not roll back or abandon others — hence the per-iteration try-catch-log. Added to `quarkus.arc.exclude-types` in test `application.properties`.
 
-**`SponsorNotificationDeliveryService`** — package-private `@ApplicationScoped`, **not** `@Transactional` at the outer method. Injects `Clock clock` and `Preferences preferences`.
+**`SponsorNotificationDeliveryService`** — package-private `@ApplicationScoped`, **not** `@Transactional` at the outer method. Injects `Clock clock` and `Preferences preferences`. Builds the connector registry via constructor injection (same pattern as the deleted `DefaultSponsorNotifier`):
+
+```java
+private final Map<String, Connector> connectorRegistry;
+
+@Inject
+SponsorNotificationDeliveryService(@All List<Connector> connectors, ...) {
+    this.connectorRegistry = connectors.stream()
+        .collect(Collectors.toMap(Connector::id, Function.identity()));
+}
+```
+
+"Connector not found" means `connectorRegistry.get(snapshot.connectorId)` returns null — treated as a failure with reason `"connector-not-found: " + snapshot.connectorId`, same code path as a connector throw.
 
 Retry policy is resolved once per `attemptDelivery()` call:
 ```java
 SponsorNotificationRetryPolicy policy = preferences
     .get(RETRY_POLICY, new SettingsScope(Path.of("casehubio", "clinical"), clock.instant()))
     .orElse(SponsorNotificationRetryPolicy.DEFAULT);
-int maxAttempts   = policy.maxAttempts();
-Duration interval = policy.retryInterval();
+int      maxAttempts   = policy.maxAttempts();
+Duration retryInterval = policy.retryInterval();
 ```
 
 Three-phase pattern:
@@ -420,11 +432,11 @@ Named `Exhausted` (not `Failed`) — FAILED is an intermediate status meaning re
 
 | Test class | Type | Covers |
 |---|---|---|
-| `DurableSponsorNotifierTest` | Unit | `notify()` calls `store.createPending()`; CDI lookup resolves to `DurableSponsorNotifier` with no ambiguity |
+| `DurableSponsorNotifierTest` | Unit | `notify()` calls `store.createPending()` (Mockito mock on store) |
 | `SponsorNotificationLedgerWriterTest` | Unit (`@InjectMock LedgerEntryRepository`) | sequence number, actor roles, `subjectId = notificationId` |
 | `SponsorNotificationStoreTest` | `@QuarkusTest` | createPending fields; state transitions; findEligibleIds batch limit; excludes DELIVERED/EXHAUSTED; respects nextRetryAfter |
 | `SponsorNotificationDeliveryServiceTest` | `@QuarkusTest` | success/failure/exhaustion paths; `maxAttempts = 1` direct exhaustion; connector-not-found; status-check skip in Phase 1; `attempts` field post-Phase-3 |
-| `SponsorNotificationIntegrationTest` | `@QuarkusTest` | CDI event → PENDING entity → `attemptDelivery()` → DELIVERED + ledger entries + deviation chain entry |
+| `SponsorNotificationIntegrationTest` | `@QuarkusTest` | CDI event → PENDING entity → `attemptDelivery()` → DELIVERED + ledger entries + deviation chain entry; CDI lookup resolves `SponsorNotifier` to `DurableSponsorNotifier` with no ambiguity |
 | `DeviationLedgerWriterTest` | existing | Extend to cover new `writeSponsorNotifiedEntry` and `writeExhaustedNotificationEntry` overloads |
 
 Scheduler excluded via `quarkus.arc.exclude-types`. Tests drive delivery via direct `deliveryService.attemptDelivery(id)` calls. Preferences overridden via `@InjectMock Preferences`.
