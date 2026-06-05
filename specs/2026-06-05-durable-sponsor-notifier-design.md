@@ -185,9 +185,9 @@ The store owns all `SponsorNotification` entity mutations **and** calls `Sponsor
 | `createPending(request)` | `REQUIRES_NEW` | Create PENDING entity; commits independently of listener's outer tx |
 | `load(id)` | `REQUIRED` | Short read tx; entity detaches on return — scalar fields only (see invariant above) |
 | `findEligibleIds(now, limit)` | `REQUIRED` | Query `status IN (PENDING, FAILED) AND (nextRetryAfter IS NULL OR nextRetryAfter <= now) LIMIT limit` |
-| `markDelivered(id, snapshot, attemptNumber, deliveredAt)` | `REQUIRES_NEW` | Entity → DELIVERED (attempts = attemptNumber, deliveredAt = connector ack time) + ledger write, atomic |
-| `markFailed(id, snapshot, reason, attemptNumber, nextRetry)` | `REQUIRES_NEW` | Entity → FAILED (attempts = attemptNumber, nextRetryAfter = nextRetry) + ledger write, atomic |
-| `markExhausted(id, snapshot, reason, attemptNumber)` | `REQUIRES_NEW` | Entity → EXHAUSTED (attempts = attemptNumber) + ledger write, atomic |
+| `markDelivered(id, snapshot, attemptNumber, deliveredAt)` | `REQUIRES_NEW` | Entity → DELIVERED (attempts = attemptNumber, deliveredAt = connector ack time, lastAttemptedAt = deliveredAt) + ledger write, atomic |
+| `markFailed(id, snapshot, reason, attemptNumber, nextRetry)` | `REQUIRES_NEW` | Entity → FAILED (attempts = attemptNumber, nextRetryAfter = nextRetry, lastAttemptedAt = now) + ledger write, atomic |
+| `markExhausted(id, snapshot, reason, attemptNumber)` | `REQUIRES_NEW` | Entity → EXHAUSTED (attempts = attemptNumber, lastAttemptedAt = now) + ledger write, atomic |
 
 `snapshot` is the `SponsorNotification` value read in Phase 1 — passed to the ledger writer for field values without a second DB read inside the `REQUIRES_NEW`.
 
