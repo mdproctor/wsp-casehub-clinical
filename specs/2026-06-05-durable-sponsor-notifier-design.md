@@ -198,15 +198,23 @@ The store owns all `SponsorNotification` entity mutations **and** calls `Sponsor
 **`SponsorNotificationRetryJob`** — `@ApplicationScoped`, `@Scheduled`, **not** `@Transactional`:
 
 ```java
-@Scheduled(every = "${casehub.clinical.sponsor-notifier.poll-interval:60}s")
-void tick() {
-    int batchSize = Integer.parseInt(
-        System.getProperty("casehub.clinical.sponsor-notifier.batch-size", "100"));
-    for (UUID id : store.findEligibleIds(clock.instant(), batchSize)) {
-        try {
-            delivery.attemptDelivery(id);
-        } catch (Exception e) {
-            LOG.errorf(e, "SponsorNotificationRetryJob: unhandled error for notificationId=%s — skipping", id);
+@ApplicationScoped
+class SponsorNotificationRetryJob {
+    @Inject SponsorNotificationStore store;
+    @Inject SponsorNotificationDeliveryService delivery;
+    @Inject Clock clock;
+
+    @ConfigProperty(name = "casehub.clinical.sponsor-notifier.batch-size", defaultValue = "100")
+    int batchSize;
+
+    @Scheduled(every = "${casehub.clinical.sponsor-notifier.poll-interval:60}s")
+    void tick() {
+        for (UUID id : store.findEligibleIds(clock.instant(), batchSize)) {
+            try {
+                delivery.attemptDelivery(id);
+            } catch (Exception e) {
+                LOG.errorf(e, "SponsorNotificationRetryJob: unhandled error for notificationId=%s — skipping", id);
+            }
         }
     }
 }
@@ -214,7 +222,16 @@ void tick() {
 
 Per GE-20260522-44bbf3: the loop is not transactional. One notification throwing must not roll back or abandon others — hence the per-iteration try-catch-log. Added to `quarkus.arc.exclude-types` in test `application.properties`.
 
-**`SponsorNotificationDeliveryService`** — package-private `@ApplicationScoped`, **not** `@Transactional` at the outer method. Injects `Clock clock`.
+**`SponsorNotificationDeliveryService`** — package-private `@ApplicationScoped`, **not** `@Transactional` at the outer method. Injects `Clock clock` and `Preferences preferences`.
+
+Retry policy is resolved once per `attemptDelivery()` call:
+```java
+SponsorNotificationRetryPolicy policy = preferences
+    .get(RETRY_POLICY, new SettingsScope(Path.of("casehubio", "clinical"), clock.instant()))
+    .orElse(SponsorNotificationRetryPolicy.DEFAULT);
+int maxAttempts   = policy.maxAttempts();
+Duration interval = policy.retryInterval();
+```
 
 Three-phase pattern:
 
@@ -242,18 +259,20 @@ Three-phase pattern:
 
 ## `DeviationLedgerWriter` changes
 
-Two new overloads required (existing methods remain unchanged):
+The existing `writeSponsorNotifiedEntry(ProtocolDeviation dev, ...)` overload is **deleted**. Its only caller was `DefaultSponsorNotifier.recordAttempt()`, which is deleted by this branch. The listener's skip paths call `writeSkippedSponsorEntry()` and `writeObserverFailureEntry()` — they never called `writeSponsorNotifiedEntry()`. Zero callers remain post-deletion.
+
+Two new methods added:
 
 ```java
 // Called by delivery service on successful delivery — takes fields from SponsorNotification snapshot
-// rather than loading ProtocolDeviation (cross-entity load avoided)
+// rather than loading ProtocolDeviation (avoids cross-entity load in the delivery service)
 @Transactional(REQUIRES_NEW)
 public void writeSponsorNotifiedEntry(
     UUID deviationId, UUID siteId, DeviationSeverity severity,
     Instant notifiedAt, String piId, String piDisplayName) { ... }
 
-// Called by delivery service on EXHAUSTED — distinct from writeObserverFailureEntry()
-// which is reserved for listener-level CDI/infrastructure failures
+// Called by delivery service on EXHAUSTED — distinct from writeObserverFailureEntry(),
+// which is reserved for listener-level CDI/infrastructure failures only
 @Transactional(REQUIRES_NEW)
 public void writeExhaustedNotificationEntry(
     UUID deviationId, UUID siteId, DeviationSeverity severity, Instant occurredAt) {
@@ -262,7 +281,7 @@ public void writeExhaustedNotificationEntry(
 }
 ```
 
-The existing `writeSponsorNotifiedEntry(ProtocolDeviation, ...)` overload is kept and continues to be called by `SponsorNotificationListener`'s existing skip paths (not affected by this change). The existing `writeObserverFailureEntry()` is not used by `DurableSponsorNotifier` — it remains reserved for `SponsorNotificationListener`'s outer catch block (listener-level CDI failure).
+Unchanged: `writeSkippedSponsorEntry()`, `writeObserverFailureEntry()` — both called by `SponsorNotificationListener` skip/catch paths.
 
 ---
 
@@ -360,6 +379,7 @@ casehubio:
 **New dependency:** `casehub-platform-config` added to `runtime/pom.xml`. This is the first use of the YAML preference backend in clinical. **Verify before implementing:**
 - Does `casehub-platform-config` require a `quarkus.index-dependency` entry in `application.properties`? Almost certainly yes — follow the pattern from engine modules.
 - Fallback behaviour when `preferences.yaml` is absent: expected to return `DEFAULT` silently (standard `casehub-platform-config` behaviour) — confirm this before relying on it in tests.
+- **Duration deserialisation:** `retryInterval` is `java.time.Duration`; the YAML value is ISO 8601 (`PT30M`). Confirm `casehub-platform-config`'s Jackson mapper registers `jackson-datatype-jsr310` (or equivalent). If not, `Duration` deserialization fails at runtime with a confusing mapping error. Verify during the first integration test run; if absent, either register the module or change the preference type to `long` minutes.
 
 The scheduler's polling frequency (`casehub.clinical.sponsor-notifier.poll-interval`, default 60s) and batch size (`casehub.clinical.sponsor-notifier.batch-size`, default 100) are MicroProfile Config properties — they must be known at startup.
 
@@ -436,3 +456,6 @@ Existing V1005–V1014 (qhorus) are a protocol violation; cleanup tracked in cas
 | (future) | SELECT FOR UPDATE SKIP LOCKED in `findEligibleIds()` for multi-node safety |
 | (future) | Eager first attempt in `notify()` to eliminate poll-interval latency |
 | (future) | Startup reconciliation scan for notification→deviation audit gap |
+| (future) | Retention policy for DELIVERED/EXHAUSTED records — accumulate without bound; correct for tamper-evident audit but may need archiving for regulated long-running deployments |
+
+**Implementation note:** `createPending()` must set `n.attempts = 0` explicitly (not rely on Java's default zero) — in regulated audit-trail code, "initialised to zero" and "forgotten to set" must be distinguishable at review time.
