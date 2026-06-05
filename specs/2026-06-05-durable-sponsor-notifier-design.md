@@ -185,7 +185,7 @@ The store owns all `SponsorNotification` entity mutations **and** calls `Sponsor
 | `createPending(request)` | `REQUIRES_NEW` | Create PENDING entity; commits independently of listener's outer tx |
 | `load(id)` | `REQUIRED` | Short read tx; entity detaches on return — scalar fields only (see invariant above) |
 | `findEligibleIds(now, limit)` | `REQUIRED` | Query `status IN (PENDING, FAILED) AND (nextRetryAfter IS NULL OR nextRetryAfter <= now) LIMIT limit` |
-| `markDelivered(id, snapshot, attemptNumber, now)` | `REQUIRES_NEW` | Entity → DELIVERED (attempts = attemptNumber, deliveredAt = now) + ledger write, atomic |
+| `markDelivered(id, snapshot, attemptNumber, deliveredAt)` | `REQUIRES_NEW` | Entity → DELIVERED (attempts = attemptNumber, deliveredAt = connector ack time) + ledger write, atomic |
 | `markFailed(id, snapshot, reason, attemptNumber, nextRetry)` | `REQUIRES_NEW` | Entity → FAILED (attempts = attemptNumber, nextRetryAfter = nextRetry) + ledger write, atomic |
 | `markExhausted(id, snapshot, reason, attemptNumber)` | `REQUIRES_NEW` | Entity → EXHAUSTED (attempts = attemptNumber) + ledger write, atomic |
 
@@ -251,9 +251,11 @@ Three-phase pattern:
 2. **Phase 2** — `connector.send(message)`: no transaction. Connector call outside tx boundary; `buildTitle()`/`buildBody()` are package-private methods moved from the deleted `DefaultSponsorNotifier`.
 3. **Phase 3** — outcome recording:
 
+**Success path — timestamp capture:** `Instant deliveredAt = clock.instant()` is captured **immediately after `connector.send()` returns successfully** — before any Phase 3 work begins. This records when the connector acknowledged delivery, not when the ledger write happened. The failure paths each capture their own `clock.instant()` at failure-detection time (correct — records when the failure was observed, not when delivery was attempted).
+
 **Success (Phase 3):**
-- `store.markDelivered(id, snapshot, attemptNumber, now)` — entity → DELIVERED + ledger write, atomic (REQUIRES_NEW)
-- `deviationLedgerWriter.writeSponsorNotifiedEntry(snapshot.deviationId, snapshot.siteId, snapshot.severity, now, snapshot.piId, snapshot.piDisplayName)` — deviation chain final outcome, own REQUIRES_NEW
+- `store.markDelivered(id, snapshot, attemptNumber, deliveredAt)` — entity → DELIVERED + ledger write, atomic (REQUIRES_NEW)
+- `deviationLedgerWriter.writeSponsorNotifiedEntry(snapshot.deviationId, snapshot.siteId, snapshot.severity, deliveredAt, snapshot.piId, snapshot.piDisplayName)` — deviation chain final outcome, own REQUIRES_NEW
 
 **Failure with retries remaining (Phase 3 — `attemptNumber < maxAttempts`):**
 - `store.markFailed(id, snapshot, reason, attemptNumber, now.plus(retryInterval))` — entity → FAILED + ledger write, atomic (REQUIRES_NEW)
@@ -347,7 +349,9 @@ public class SponsorNotificationLedgerWriter {
     @Inject LedgerEntryRepository repo;
     @Inject Clock clock;
 
-    @Transactional public void writeDelivered(SponsorNotification n, int attemptNumber) { ... }
+    // deliveredAt is caller-supplied (connector acknowledgement time) — same pattern as
+    // DeviationLedgerWriter.writeSponsorNotifiedEntry(), so both audit chains record identical timestamps
+    @Transactional public void writeDelivered(SponsorNotification n, int attemptNumber, Instant deliveredAt) { ... }
     @Transactional public void writeFailed(SponsorNotification n, int attemptNumber, String reason) { ... }
     @Transactional public void writeExhausted(SponsorNotification n, int attemptNumber, String reason) { ... }
 
