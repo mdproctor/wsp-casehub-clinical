@@ -79,7 +79,13 @@
       "Skill(write-content)",
       "Skill(publish-blog)",
       "Bash(date -v +14d +%Y-%m-%d)",
-      "Bash(printf '# Branch Closed — issue-057-arc42-gaps\\\\n**Date:** __TRACKED_VAR__\\\\n**Issue:** #57\\\\n**Scheduled for deletion:** __TRACKED_VAR__\\\\n')"
+      "Bash(gh run *)",
+      "Bash(xargs -I{} sh -c 'jar tf \"$1\" 2>/dev/null | grep -l \"ReplyException\\\\|RECIPIENT_FAILURE\" && echo \"$1\"' -- {})",
+      "Bash(curl -s https://raw.githubusercontent.com/casehubio/parent/main/docs/PLATFORM.md)",
+      "Bash(sed -i 's|\"clinical/deviation/\" + dev\\\\.id + \"/pi-oversight\"|\"clinical/deviation/dev-\" + dev.id + \"/pi-oversight\"|g' /Users/mdproctor/claude/casehub/clinical/runtime/src/test/java/io/casehub/clinical/service/ProtocolDeviationServiceTest.java)",
+      "Bash(sed -i 's|\"clinical/deviation/\" + deviationId + \"/pi-oversight\"|\"clinical/deviation/dev-\" + deviationId + \"/pi-oversight\"|g' /Users/mdproctor/claude/casehub/clinical/runtime/src/test/java/io/casehub/clinical/service/ProtocolDeviationServiceTest.java)",
+      "Skill(git-commit)",
+      "Skill(update-design)"
     ]
   }
 }
