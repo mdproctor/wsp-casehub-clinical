@@ -85,7 +85,8 @@
       "Bash(sed -i 's|\"clinical/deviation/\" + dev\\\\.id + \"/pi-oversight\"|\"clinical/deviation/dev-\" + dev.id + \"/pi-oversight\"|g' /Users/mdproctor/claude/casehub/clinical/runtime/src/test/java/io/casehub/clinical/service/ProtocolDeviationServiceTest.java)",
       "Bash(sed -i 's|\"clinical/deviation/\" + deviationId + \"/pi-oversight\"|\"clinical/deviation/dev-\" + deviationId + \"/pi-oversight\"|g' /Users/mdproctor/claude/casehub/clinical/runtime/src/test/java/io/casehub/clinical/service/ProtocolDeviationServiceTest.java)",
       "Skill(git-commit)",
-      "Skill(update-design)"
+      "Skill(update-design)",
+      "Bash(xargs -I{} git -C /Users/mdproctor/claude/casehub/clinical ls-tree -r --name-only {})"
     ]
   }
 }
