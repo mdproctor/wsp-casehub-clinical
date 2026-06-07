@@ -1,0 +1,9 @@
+branch: issue-67-sx-sweep
+project-sha: ed4daf09aa302c3e642036c59d6473a66c76aa16
+date: 2026-06-07
+issue: 67
+issue-repo: casehubio/clinical
+covers: 60,61,62,63,64,65,66,67
+flyway-next-v: 2000
+design-repo: workspace
+design-section-hashes:
