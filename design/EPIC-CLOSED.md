@@ -1,5 +1,4 @@
-# Branch Closed — epic-multi-site-sub-case
-**Date:** 2026-05-10
-**Issue:** #3
-**Scheduled for deletion:** 2026-05-24
-**Note:** Scaffold only — no work done on this branch. Overdue for deletion.
+# Branch Closed — issue-67-sx-sweep
+**Date:** 2026-06-07
+**Issue:** #67
+**Covers:** 60,61,62,63,64,65,66,67
