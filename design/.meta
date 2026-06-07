@@ -1,0 +1,9 @@
+branch: issue-68-compile-and-tenancy
+project-sha: 111ac4d143c944ecd0016a5e3b0cfb62562032eb
+date: 2026-06-07
+issue: 68
+issue-repo: casehubio/clinical
+covers: 68,69
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes:
