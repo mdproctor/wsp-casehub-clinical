@@ -2,6 +2,8 @@
 
 | File | Date | Title |
 |------|------|-------|
+| [2026-06-07-mdp02-backlog-sweep-real-bug.md](2026-06-07-mdp02-backlog-sweep-real-bug.md) | 2026-06-07 | The backlog sweep that found a real bug |
+| [2026-06-07-mdp01-durable-sponsor-notifier.md](2026-06-07-mdp01-durable-sponsor-notifier.md) | 2026-06-07 | DurableSponsorNotifier — from fire-and-forget to durable delivery |
 | [2026-06-04-mdp01-who-notified-whom.md](2026-06-04-mdp01-who-notified-whom.md) | 2026-06-04 | Who notified whom — closing an audit gap in GCP sponsor notifications |
 | [2026-06-03-mdp01-the-silent-skip.md](2026-06-03-mdp01-the-silent-skip.md) | 2026-06-03 | The silent skip — FDA audit gap in notification listener skip paths, distinct actorRole per reason, V1013 nullable columns, and async REQUIRES_NEW test contamination |
 | [2026-06-02-mdp01-arc42stories-the-gate.md](2026-06-02-mdp01-arc42stories-the-gate.md) | 2026-06-02 | ARC42STORIES.MD bootstrapped for clinical — write-content mode enforcement, spec gate addition, and what clinical's structure requires vs devtown |
