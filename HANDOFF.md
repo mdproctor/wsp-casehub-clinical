@@ -30,14 +30,12 @@ pre-existing regression, tracked as clinical#67.
 
 ## Outstanding
 
-- `IrbDecisionListenerTest` compile failure (casehubio/clinical#67) — pre-existing workadapter snapshot regression, not caused by #21
 - Workspace branch `epic-multi-site-sub-case` past deletion window — retained per policy
 
 ## What's next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #67 | Fix IrbDecisionListenerTest — CallerRef.encode() removed in workadapter snapshot | XS | Low | Compile error; find new CallerRef API in workadapter source |
 | Layer 7 | Trust routing | XL | High | Blocked on engine#387 (open) |
-| #62 | Renumber qhorus migrations V1005–V1014 → V2000–V2009 (protocol compliance) | S | Low | Mechanical rename; requires Flyway repair or clean rebuild |
-| #60 | WorkItem escalation on SponsorNotificationExhaustedEvent | S | Low | Extension point exists; wire a WorkItem on exhaustion |
+
+*Updated: #67, #62, #60 closed — removed from backlog.*
