@@ -39,6 +39,5 @@ pre-existing regression, tracked as clinical#67.
 |---|-------------|-------|------------|-------|
 | #67 | Fix IrbDecisionListenerTest — CallerRef.encode() removed in workadapter snapshot | XS | Low | Compile error; find new CallerRef API in workadapter source |
 | Layer 7 | Trust routing | XL | High | Blocked on engine#387 (open) |
-| AML migration | Bootstrap ARC42STORIES.MD for AML following clinical pattern | L | Med | arc42stories-spec.md gate now in place |
 | #62 | Renumber qhorus migrations V1005–V1014 → V2000–V2009 (protocol compliance) | S | Low | Mechanical rename; requires Flyway repair or clean rebuild |
 | #60 | WorkItem escalation on SponsorNotificationExhaustedEvent | S | Low | Extension point exists; wire a WorkItem on exhaustion |
