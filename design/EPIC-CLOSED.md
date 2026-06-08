@@ -1,5 +1,4 @@
-# Branch Closed — epic-multi-site-sub-case
-**Date:** 2026-05-10
-**Issue:** #3
-**Scheduled for deletion:** 2026-05-24
-**Note:** Scaffold only — no work done on this branch. Overdue for deletion.
+# Branch Closed — issue-50-dsl-companions
+**Date:** 2026-06-08
+**Issue:** #50
+**Covers:** 50
