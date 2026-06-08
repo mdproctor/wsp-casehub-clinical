@@ -5,7 +5,7 @@
 **Branch:** issue-33-casememorystore-integration
 **Platform dependency:** casehubio/platform#79 (assertTenant async fix)
 **Degradation tracking:** casehubio/clinical#70
-**Deferred:** DRUG and IRB domains — tracked in issues filed at end of this spec
+**Deferred:** casehubio/clinical#71 (query isolation), casehubio/clinical#72 (DRUG domain), casehubio/clinical#73 (IRB domain)
 
 ---
 
@@ -16,115 +16,149 @@ with prior Grade 3 hepatotoxicity starts without that history. A new deviation
 review at a site with three recent reporting breaches starts without site
 compliance context. CaseMemoryStore closes this gap by surfacing patient and
 site history before the first agent runs, and accumulating outcome facts across
-cases for future enrichment.
+cases.
 
 ---
 
 ## Scope
 
-1. **Multi-tenancy foundation** — `tenantId` on all domain entities (closes #69); `tenantId` on two CDI events; `CurrentPrincipal` injection into all entity-creating services
-2. **Two memory domains** — PATIENT and SITE (DRUG and IRB deferred — see Deferred Issues)
+This spec covers:
+1. **Multi-tenancy foundation** — `tenantId` on all six domain entities, CDI events, and entity creation paths (closes #69)
+2. **Two memory domains** — patient, site (DRUG and IRB deferred: #72, #73)
 3. **`ClinicalMemoryService`** — central write/read facade
 4. **Context value objects** — `ClinicalPatientContext`, `ClinicalSiteContext`
 5. **Integration points** — where facts are written and recalled
 6. **Testing strategy**
-7. **ARC42STORIES.MD update** — Layer 8
 
 ---
 
 ## 1. Multi-tenancy Foundation (closes #69)
 
-### Entity changes — 6 tables
+### Entity changes
 
-Add `String tenantId` field to:
+Add `String tenantId` to all six domain entities:
+
 ```
 ClinicalTrial, TrialSite, PatientEnrollment,
 ProtocolDeviation, AdverseEvent, IrbApproval
 ```
 
-Single Flyway migration **V111** in `db/migration/default/` with 6 ALTER TABLE
-statements:
+Single Flyway migration V116 in `db/migration/default/`:
 
 ```sql
-ALTER TABLE clinical_trial       ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
-ALTER TABLE trial_site           ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
-ALTER TABLE patient_enrollment   ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
-ALTER TABLE protocol_deviation   ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
-ALTER TABLE adverse_event        ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
-ALTER TABLE irb_approval         ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+-- V116: Multi-tenancy foundation — tenant_id column on all six domain entities.
+-- DEFAULT 'default' ensures safe migration on existing rows.
+-- Query isolation (filtering reads by tenant_id) is tracked in casehubio/clinical#71.
+-- Note: sponsor_notification.tenant_id already exists from V115 (nullable VARCHAR(64)).
+ALTER TABLE clinical_trial     ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+ALTER TABLE trial_site         ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+ALTER TABLE patient_enrollment ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+ALTER TABLE protocol_deviation ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+ALTER TABLE adverse_event      ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
+ALTER TABLE irb_approval       ADD COLUMN tenant_id VARCHAR(255) NOT NULL DEFAULT 'default';
 ```
 
-`DEFAULT 'default'` keeps the migration safe on existing rows. Production
-deployments replace these defaults via a one-time backfill migration before
-enabling multi-tenant routing.
+Production deployments backfill from `CurrentPrincipal` before the default is removed.
+Query isolation (every Panache read scoped to tenant) is tracked separately in #71 and
+not part of this spec.
 
-`SponsorNotification` already has a nullable `tenant_id` column at V115 (marked
-"Future multi-tenancy" in the entity comment). No new migration needed; the
-population path is handled via `SponsorNotificationRequest` (see §Modified Files).
+### Entity creation sites — tenantId population
 
-### Entity creation — tenantId population
+All seven entity creation sites must set `tenantId` at persist time:
 
-Every entity-creating code path must set `tenantId` before `persist()`. The
-`CurrentPrincipal` is the source of truth on request-scoped paths:
-
-| Entity | Creation site | tenantId source |
+| Site | Entity | tenantId source |
 |---|---|---|
-| `ClinicalTrial` | `TrialResource.register()` | `principal.tenancyId()` — inject `CurrentPrincipal` |
-| `TrialSite` | `SiteResource.addSite()` | `principal.tenancyId()` — inject `CurrentPrincipal` |
-| `PatientEnrollment` | `PatientResource.enroll()` | `principal.tenancyId()` — inject `CurrentPrincipal` |
-| `ProtocolDeviation` | `DeviationResource` | `principal.tenancyId()` — inject `CurrentPrincipal` |
-| `AdverseEvent` | `PatientResource` → `AdverseEventService` | `principal.tenancyId()` — inject `CurrentPrincipal` in `AdverseEventService`; set `ae.tenantId` before `ae.persist()` |
-| `IrbApproval` | `IrbDeviationCaseService.prepareAndCreateApproval()` | `event.tenantId()` from `ProtocolDeviationResolvedEvent` |
-| `SponsorNotification` | `DurableSponsorNotifier` | `request.tenantId()` from `SponsorNotificationRequest` |
+| `TrialResource.register()` | `ClinicalTrial` | inject `CurrentPrincipal`; `trial.tenantId = principal.tenancyId()` |
+| `SiteResource.add()` | `TrialSite` | inject `CurrentPrincipal`; `site.tenantId = principal.tenancyId()` |
+| `PatientResource.enroll()` | `PatientEnrollment` | inject `CurrentPrincipal`; `enrollment.tenantId = principal.tenancyId()` |
+| `DeviationResource.reportDeviation()` | `ProtocolDeviation` | inject `CurrentPrincipal`; `deviation.tenantId = principal.tenancyId()` |
+| `AdverseEventService.reportAdverseEvent()` | `AdverseEvent` | inject `CurrentPrincipal`; `ae.tenantId = principal.tenancyId()` before `ae.persist()` |
+| `IrbDeviationCaseService.prepareAndCreateApproval()` | `IrbApproval` | `approval.tenantId = event.tenantId()` (after `ProtocolDeviationResolvedEvent` gains `tenantId`) |
+| `SponsorNotificationStore.createPending()` | `SponsorNotification` | `n.tenantId = req.tenantId()` (after `SponsorNotificationRequest` gains `tenantId`) |
 
-`PatientResource` constructs the `AdverseEvent` and passes it to
-`AdverseEventService.reportAdverseEvent(ae)`. The service must inject
-`CurrentPrincipal` and set `ae.tenantId = principal.tenancyId()` before
-`ae.persist()`. This is the only case where a resource constructs an entity
-that a service persists.
+`SponsorNotification.tenantId` already exists from V115 (nullable). `SponsorNotificationStore.createPending()`
+currently leaves it null. Population path: `SponsorNotificationRequest` gains `String tenantId`;
+`SponsorNotificationListener` passes `event.tenantId()`; `SponsorNotificationStore` sets `n.tenantId = req.tenantId()`.
 
-### Event changes — 2 events
+### CDI event changes
 
-Only two CDI events need `tenantId()` added. The criterion is: does the
-event propagate to an async observer that needs tenantId for a memory write or
-entity creation, and cannot read it from a loaded entity?
+Three of the five clinical CDI events in `api/` gain `String tenantId()`:
 
-| Event | Gains tenantId | Emitters | Why |
-|---|---|---|---|
-| `ProtocolDeviationResolvedEvent` | ✅ | `PiResponseListener`, `DeviationExpirer` | `IrbDeviationCaseService` creates `IrbApproval` from the event; `SponsorNotificationListener` creates `SponsorNotification` via notifier; no entity to load tenantId from at observer call time |
-| `AdverseEventReportedEvent` | ✅ | `AdverseEventService` | `AeEscalationCaseService` is `@ObservesAsync`; gets tenantId from the event to put in case context |
-| `AeEscalationCompletedEvent` | ❌ | `AeEscalationListener` | Only consumer is `TrialSafetySignalService`, which does not need tenantId. `AeEscalationListener` reads tenantId from case context for memory writes — the event is not the carrier |
-| `IrbApprovalResolvedEvent` | ❌ | `IrbDecisionListener` | No memory write on IRB domain in this release (IRB domain deferred) |
+| Event | Emitting service | tenantId source |
+|---|---|---|
+| `AdverseEventReportedEvent` | `AdverseEventService` | `principal.tenancyId()` — injected `CurrentPrincipal`, sync ✅ |
+| `IrbApprovalResolvedEvent` | `IrbDecisionListener` | `approval.tenantId` — entity field |
+| `ProtocolDeviationResolvedEvent` | `PiResponseListener`, `DeviationExpirer` | `deviation.tenantId` — entity field |
 
-Emitter stamp sources for the two events that gain `tenantId`:
+`AeEscalationCompletedEvent` does **not** gain `tenantId`. The memory write for AE outcomes
+(`storeAeOutcome`) happens in `AeEscalationListener` before the event fires. The event's
+only production consumer (`TrialSafetySignalService`) does not need tenantId.
 
-- `AdverseEventReportedEvent` — stamped in `AdverseEventService.reportAdverseEvent()` from `principal.tenancyId()` (request-context path, `CurrentPrincipal` available)
-- `ProtocolDeviationResolvedEvent` — stamped by both emitters from `d.tenantId` or `deviation.tenantId` (entity field, loaded before fire in both `PiResponseListener` and `DeviationExpirer`)
+`IrbDecisionListener` and `PiResponseListener` load the entity before constructing the event —
+the `tenantId` field adds a single field read, no additional DB query.
 
-### Query isolation
+**Blast radius — `AdverseEventReportedEvent` constructor change:**
 
-This spec adds `tenant_id` columns and populates them correctly. It does NOT
-add tenant-scoped Panache queries to REST endpoints — `AdverseEvent.findById()`
-and friends remain unscoped. Tenant isolation at query level is a GDPR compliance
-gap tracked in casehubio/clinical#71 (filed at end of this spec). This is an
-explicit deferral, not an oversight.
+The record gains `String tenantId`, breaking all construction sites:
+
+*Emitter:*
+- `AdverseEventService.reportAdverseEvent()` — stamps `principal.tenancyId()`
+
+*Observers (implementation unchanged — compile error only):*
+- `AeEscalationCaseService.onAdverseEventReported()` — reads `event.tenantId()` for case context
+- `SafetyOfficerNotificationListener.onAeReported()` — reads `event.tenantId()` if needed
+
+*Test files with construction sites:*
+- `AeEscalationLifecycleTest` — 1 factory method (`aeEvent()`)
+- `SafetyOfficerNotificationIntegrationTest` — 3 construction sites
+- `SafetyOfficerNotificationListenerTest` — 10+ construction sites (factory + inline)
+- `DsmbRollupTest` — 1 factory method
+
+**Blast radius — `IrbApprovalResolvedEvent` constructor change:**
+
+The record gains `String tenantId`, breaking all construction sites:
+
+*Emitter:*
+- `IrbDecisionListener.onWorkItemLifecycle()` — stamps `approval.tenantId`
+
+*Test files with construction sites:*
+- `IrbDecisionListenerTest` — 1 construction site
+
+**Blast radius — `ProtocolDeviationResolvedEvent` constructor change:**
+
+The record gains `String tenantId` as a new field, breaking all construction sites. Complete enumeration:
+
+*Emitters (must add `deviation.tenantId` or `d.tenantId`):*
+- `PiResponseListener.process()` — DONE / DECLINE paths
+- `DeviationExpirer.expireOne()` — EXPIRED path
+
+*Observers (compile error if event record changes; implementation unchanged):*
+- `IrbDeviationCaseService.onDeviationResolved()` — reads `event.tenantId()` to set `approval.tenantId`
+- `SponsorNotificationListener.onDeviationResolved()` — reads `event.tenantId()` to populate `SponsorNotificationRequest`
+
+*Test files with construction sites (all must be updated):*
+- `PiResponseListenerMemoryTest` — 2 construction sites (new test, see §8)
+- `IrbCommitteePolicySpiTest` — 2 construction sites (`criticalDeviationApproved()` factory)
+- `IrbGateLifecycleTest` — 2 construction sites (`criticalDeviationApproved()` factory)
+- `IrbDeviationCaseServiceTest` — 3 construction sites (non-irb, pi-rejected, helper)
+- `SponsorNotificationListenerTest` — 8+ construction sites across all test methods
 
 ---
 
 ## 2. Memory Domains
 
-New class `ClinicalMemoryDomains` in `io.casehub.clinical.memory`.
-
-Two domains in this release:
+New class `ClinicalMemoryDomains` in package `io.casehub.clinical.memory`.
 
 | Constant | Domain name | entityId convention | What is stored |
 |---|---|---|---|
 | `PATIENT` | `clinical-patient` | `patient:{enrollmentId}` | AE report facts (grade, site); AE outcome facts (safety review, DSMB escalation) |
-| `SITE` | `clinical-site` | `site:{siteId}` | AE report events by grade; deviation reports by type and severity; PI decision outcomes |
+| `SITE` | `clinical-site` | `site:{siteId}` | AE report events, deviation reports, PI decision outcomes (APPROVED / REJECTED / TIMELINE_BREACH) |
 
-**Deferred to separate issues:**
-- `DRUG` (`clinical-drug`, `protocol:{protocolId}`) — cross-site AE signals per protocol. Requires `protocolId` in case context (additional entity chain traversal) and a defined recall path. Filed as casehubio/clinical#72.
-- `IRB` (`clinical-irb`, `deviation-type:{deviationType}`) — IRB decision precedent per deviation type. Requires either an extra entity load in `IrbDecisionListener` or adding `deviationType` to `IrbApproval`. Filed as casehubio/clinical#73.
+DRUG domain (`clinical-drug`) deferred to #72 — entityId convention, recall path design, and
+cross-tenant pharmacovigilance tradeoff documented as spec-ready questions in that issue.
+
+IRB domain (`clinical-irb`) deferred to #73 — `IrbApproval.deviationType` gap
+(extra DB query vs. schema addition vs. entityId change) documented as the design question.
 
 ---
 
@@ -133,18 +167,19 @@ Two domains in this release:
 **Package:** `io.casehub.clinical.memory`
 **Scope:** `@ApplicationScoped`
 
-No caller touches `CaseMemoryStore` directly. All domain semantics live here.
+No caller in clinical touches `CaseMemoryStore` directly. All domain semantics
+live in this class.
 
-Contract (follows aml `AmlMemoryService`):
 - All writes wrapped in `try/catch` — failures log WARN, never propagate
-- All queries return context objects or `empty()` — never throw
-- `tenantId` is always an explicit parameter — the service does NOT inject `CurrentPrincipal`
-- Constructor injection: `CaseMemoryStore` only (no `PreferenceProvider`)
+- All queries return the context object (populated or `empty()`) — never throw
+- `tenantId` is always an explicit parameter; the service does not inject `CurrentPrincipal`
+- Constructor injection for `CaseMemoryStore` only
 
 ### Write methods
 
 ```java
-void storeAeReport(UUID enrollmentId, UUID siteId, CtcaeGrade grade, String tenantId)
+void storeAeReport(UUID aeId, UUID enrollmentId, UUID siteId,
+                   CtcaeGrade grade, String tenantId)
 
 void storeAeOutcome(UUID aeId, UUID enrollmentId, CtcaeGrade grade,
                     String safetyReview, boolean dsmbEscalated, String tenantId)
@@ -156,6 +191,9 @@ void storePiDecision(UUID deviationId, UUID siteId,
                      String deviationType, PiApprovalStatus status, String tenantId)
 ```
 
+`storePiDecision` maps `PiApprovalStatus.EXPIRED` to outcome `"TIMELINE_BREACH"`;
+`APPROVED` / `REJECTED` / `ESCALATED` to their name strings.
+
 ### Query methods
 
 ```java
@@ -165,16 +203,11 @@ ClinicalSiteContext    querySiteContext(UUID siteId, String tenantId)
 
 ### Attribute conventions
 
-Standard keys from `io.casehub.platform.api.memory.MemoryAttributeKeys`
-(`MemoryAttributeKeys` exists in `casehub-platform-api` — do not redefine):
+All facts use `MemoryAttributeKeys` (`io.casehub.platform.api.memory.MemoryAttributeKeys`):
+- `ACTOR_ID` → `"clinical-service"`
+- `OUTCOME` → domain-specific string (e.g. `"GRADE_3"`, `"APPROVED"`, `"TIMELINE_BREACH"`)
 
-- `ACTOR_ID` → `"clinical-service"` on all facts
-- `OUTCOME` → domain-specific string: `"GRADE_3"`, `"APPROVED"`, `"TIMELINE_BREACH"`, etc.
-
-CONFIDENCE is omitted. Clinical facts are deterministic — AE grade is a reported
-fact, PI approval is a recorded decision. Confidence belongs to probabilistic
-agent assessments, not factual records. Copying AML's confidence pattern without
-a clinical use case would be noise.
+CONFIDENCE is not set — it applies to probabilistic agent outputs, not deterministic domain facts.
 
 ---
 
@@ -182,19 +215,17 @@ a clinical use case would be noise.
 
 ### `ClinicalPatientContext`
 
-Wraps `List<Memory> aeHistory` (all PATIENT domain recalls for the enrollment).
-
 ```java
 public record ClinicalPatientContext(List<Memory> aeHistory) {
     public static ClinicalPatientContext empty()
     public boolean hasHistory()
-    public boolean hasPriorGrade3OrAbove()   // any memory where OUTCOME attr is GRADE_3/GRADE_4/GRADE_5
-    public boolean hasPriorEscalation()      // any memory where OUTCOME attr contains "ESCALATED"
+    public boolean hasPriorGrade3OrAbove()  // any memory with outcome attr >= GRADE_3
+    public boolean hasPriorEscalation()     // any memory with outcome attr == "ESCALATED" | "DSMB_ESCALATED"
     public Map<String, Object> toContextMap()
 }
 ```
 
-`toContextMap()` shape (injected under key `patientContext` in engine initialContext):
+`toContextMap()` shape injected into engine `initialContext` under key `patientContext`:
 
 ```json
 {
@@ -203,34 +234,30 @@ public record ClinicalPatientContext(List<Memory> aeHistory) {
   "hasPriorEscalation": false,
   "aeCount": 2,
   "facts": [
-    { "grade": "GRADE_3", "outcome": "RESOLVED", "createdAt": "2026-04-12T10:00:00Z" }
+    { "grade": "GRADE_3", "outcome": "RESOLVED", "createdAt": "2026-04-12T..." }
   ]
 }
 ```
 
-YAML bindings in `AeEscalationCaseDefinition` key off
+YAML bindings in `AeEscalationCaseDefinition` can key off
 `.patientContext.hasPriorGrade3OrAbove` to tighten monitoring intensity.
 
 ### `ClinicalSiteContext`
-
-Wraps `List<Memory> complianceEvents` (SITE domain, bounded by `withSince()`
-in the query — see §5 Recall Path).
 
 ```java
 public record ClinicalSiteContext(List<Memory> complianceEvents) {
     public static ClinicalSiteContext empty()
     public boolean hasComplianceIssues()
-    public int recentTimelineBreachCount()   // count where OUTCOME == "TIMELINE_BREACH"
+    public int recentTimelineBreachCount()   // count entries with outcome == "TIMELINE_BREACH"
     public Map<String, Object> toContextMap()
 }
 ```
 
-`recentTimelineBreachCount()` counts matching entries in the `complianceEvents`
-list. The time window is enforced by the query (`withSince` 180 days), not by
-filtering in the context object — the store does the bounding; the context counts
-what the store returns.
+`complianceEvents` is already time-filtered by the store query (`withSince` 180 days) —
+`recentTimelineBreachCount()` simply counts entries with `OUTCOME == "TIMELINE_BREACH"`;
+no additional Java-side date arithmetic.
 
-`toContextMap()` shape (injected under key `siteContext`):
+`toContextMap()` shape injected under key `siteContext`:
 
 ```json
 {
@@ -240,7 +267,11 @@ what the store returns.
 }
 ```
 
-Both return `empty()` on any adapter failure. No case is ever blocked.
+Deviation review case YAML can key off `.siteContext.recentTimelineBreachCount >= 3`
+to lower the DSMB notification threshold for repeat-offending sites.
+
+Both return `empty()` on any adapter failure. No case is ever blocked by a
+memory read failure.
 
 ---
 
@@ -248,68 +279,84 @@ Both return `empty()` on any adapter failure. No case is ever blocked.
 
 ### Write — request-context paths (work on merge)
 
-"Request-context" means the caller runs on the HTTP request thread with an
-active CDI request scope and `CurrentPrincipal` available.
+These run on an HTTP request thread with an active CDI request scope.
 
-| Service | Method | Domains written |
+| Service | Method called | Domains written |
 |---|---|---|
-| `AdverseEventService.reportAdverseEvent()` | `storeAeReport(enrollmentId, siteId, grade, tenantId)` | PATIENT, SITE |
-| `ProtocolDeviationService.reportDeviation()` | `storeDeviationReport(deviationId, siteId, deviationType, severity, tenantId)` | SITE |
+| `AdverseEventService.reportAdverseEvent()` | `storeAeReport(...)` | `PATIENT`, `SITE` |
+| `ProtocolDeviationService.reportDeviation()` | `storeDeviationReport(...)` | `SITE` |
 
-Both calls happen inside the `@Transactional` service method before
-`fireAsync()`. tenantId comes from `ae.tenantId` / `deviation.tenantId` (just set
-above in the same method via `CurrentPrincipal`).
+### Write — non-request-context paths (degrade to WARN until platform#79)
 
-### Write — async observer paths (degrade to WARN until platform#79)
+These run without an active CDI request scope — Quartz scheduler threads and CDI async
+executor threads both lack request scope. `CaseMemoryStore` adapters call
+`MemoryPermissions.assertTenant(input.tenantId(), principal)` where `principal` is a
+`@RequestScoped CurrentPrincipal` proxy; without request scope, this throws
+`SecurityException`. `ClinicalMemoryService.try/catch` absorbs it and logs WARN.
+tenantId is sourced from entities and case context, not from `CurrentPrincipal`.
+When platform#79 ships, all these writes activate automatically — no clinical code change.
 
-"Async observer" means the caller runs on the CDI managed executor thread
-(`@ObservesAsync`), outside request scope. `assertTenant()` in the adapters
-will throw `SecurityException` (no `CurrentPrincipal` in scope); `ClinicalMemoryService`'s
-try/catch absorbs it and logs WARN. When platform#79 ships, async writes activate
-automatically — no clinical code change required.
-
-| Observer | Method | Domains | tenantId source |
+| Service | Method called | Domains | tenantId source |
 |---|---|---|---|
-| `AeEscalationListener.onCaseLifecycle()` | `storeAeOutcome(...)` | PATIENT | case context `"tenantId"` key |
-| `PiResponseListener.process()` | `storePiDecision(...)` | SITE | `deviation.tenantId` (loaded entity) |
+| `DeviationExpirer.expireOne()` | `storePiDecision(..., EXPIRED)` | `SITE` (outcome: `"TIMELINE_BREACH"`) | `d.tenantId` — entity field |
+| `AeEscalationListener.onCaseLifecycle()` | `storeAeOutcome(...)` | `PATIENT` | case context `"tenantId"` key |
+| `PiResponseListener.process()` | `storePiDecision(...)` | `SITE` | `deviation.tenantId` — entity field |
 
-`AeEscalationListener` reads `tenantId` from case context — NOT from an entity
-load. `AeEscalationCaseService.prepareAndMarkRequested()` adds
-`ctx.put("tenantId", ae.tenantId)` alongside the existing `aeId`, `enrollmentId`,
-etc. fields.
+All async writes are wrapped in `ClinicalMemoryService`'s try/catch. `platform#79`
+fixes `assertTenant` in async context (currently throws `SecurityException` when
+`CurrentPrincipal` is unavailable). Until it ships, every async write is attempted
+and silently caught as WARN — the case runs exactly as today.
 
-### Recall path — `AeEscalationCaseService.prepareAndMarkRequested()`
+When platform#79 ships, async writes activate automatically — no clinical code change needed.
 
-This `@Transactional` method already loads `AdverseEvent ae`. After migration,
-`ae.tenantId` is available. Two additions:
+### Recall — `AeEscalationCaseService.prepareAndMarkRequested()`
 
-1. Stamp tenantId in case context for downstream use:
+Two additions inside the existing `@Transactional` method:
+
+1. **`tenantId` in case context** — after loading `ae` (which now has `tenantId`):
+   `ctx.put("tenantId", ae.tenantId)` — for `AeEscalationListener` to read at completion time.
+
+2. **Prior context injection** — after loading `ae`:
 ```java
 ctx.put("tenantId", ae.tenantId);
-```
-
-2. Recall prior context (runs in `@ObservesAsync` thread — no request scope,
-   same async degradation as writes until platform#79):
-```java
 ClinicalPatientContext patientCtx =
     memoryService.queryPatientContext(ae.enrollmentId, ae.tenantId);
-// Resolve siteId from enrollment for site context
-PatientEnrollment enrollment = PatientEnrollment.findById(ae.enrollmentId);
-UUID siteId = enrollment != null ? enrollment.siteId : null;
-ClinicalSiteContext siteCtx = siteId != null
-    ? memoryService.querySiteContext(siteId, ae.tenantId)
-    : ClinicalSiteContext.empty();
+ClinicalSiteContext siteCtx =
+    memoryService.querySiteContext(siteId, ae.tenantId);
 ctx.put("patientContext", patientCtx.toContextMap());
 ctx.put("siteContext",    siteCtx.toContextMap());
 ```
 
-`querySiteContext` uses `withSince(Instant.now().minus(180, DAYS)).withLimit(50)`
-(enforced in the query, not in the context object). This bounds the compliance
-event window correctly even on high-volume sites.
+Until platform#79 ships, both context maps are always `empty()` because async writes
+(which populate the store) silently fail. The case runs exactly as today.
+When the fix ships, historical enrichment activates automatically.
 
-Until platform#79 ships, both context maps are always `empty()` — cases run
-exactly as today, without enrichment. When the fix ships, historical context
-activates automatically.
+### `AeEscalationListener` addition
+
+After `ledgerWriter.writeCompletionEntry(...)`, before `completedEvents.fireAsync(...)`.
+`tenantId` is read from the case context (set by `AeEscalationCaseService`):
+
+```java
+String tenantId = resolveString(instance.getCaseContext().getPath("tenantId"));
+if (tenantId != null) {
+    memoryService.storeAeOutcome(aeId, enrollmentId, grade, safetyReviewOutcome, dsmbEscalated, tenantId);
+}
+```
+
+`resolveString` is a private null-safe helper (same pattern as existing `resolveUuid`).
+
+### `querySiteContext` query construction
+
+```java
+MemoryQuery query = MemoryQuery.forEntity("site:" + siteId, ClinicalMemoryDomains.SITE, tenantId)
+    .withSince(Instant.now().minus(180, ChronoUnit.DAYS))
+    .withLimit(50);
+List<Memory> events = store.query(query);
+return new ClinicalSiteContext(events);
+```
+
+The 180-day window and limit-50 are applied in the store query, not in Java post-processing.
+`ClinicalSiteContext.recentTimelineBreachCount()` counts directly from the returned list.
 
 ### Maven dependencies
 
@@ -326,34 +373,21 @@ activates automatically.
 </dependency>
 ```
 
-### CDI activation rules
+**CDI wiring:**
 
-**Production (`JpaMemoryStore`, `io.casehub.platform.memory.jpa`):**
-`@ApplicationScoped` — displaces `NoOpCaseMemoryStore` (`@DefaultBean`) by
-classpath presence alone. No `selected-alternatives` entry needed.
+`io.casehub.platform.memory.NoOpCaseMemoryStore` is `@DefaultBean @ApplicationScoped`.
+`io.casehub.platform.memory.jpa.JpaMemoryStore` is `@ApplicationScoped` (no `@DefaultBean`) —
+it displaces `NoOpCaseMemoryStore` by classpath presence alone. **No `selected-alternatives`
+entry is needed in production `application.properties`.**
 
-**Test (`InMemoryMemoryStore`, `io.casehub.platform.memory.inmem`):**
-`@Alternative @Priority(10)` — must be activated explicitly:
+`io.casehub.platform.memory.inmem.InMemoryMemoryStore` is `@Alternative @Priority(10)` —
+it requires a `selected-alternatives` entry in test `application.properties`:
 ```properties
-# test application.properties — append to existing selected-alternatives value
-quarkus.arc.selected-alternatives=...,\
-  io.casehub.platform.memory.inmem.InMemoryMemoryStore
+quarkus.arc.selected-alternatives=...,io.casehub.platform.memory.inmem.InMemoryMemoryStore
 ```
 
-### Flyway for `memory-jpa`
-
-`casehub-platform-memory-jpa` ships Flyway migrations at `classpath:db/memory/migration`
-(V1000 in platform's own numbering). Clinical must include this path:
-
-```properties
-# application.properties (production)
-quarkus.flyway.locations=classpath:db/migration/default,classpath:db/memory/migration
-
-# application.properties (test) — Flyway disabled for H2 tests; no change needed
-```
-
-No `index-dependency` entry needed for `memory-jpa` — the module has no `quarkus:build`
-goal; Jandex is not required for JPA entity discovery (EntityManager is injected).
+Add index-dependency entries for `casehub-platform-memory-jpa` in production
+`application.properties` (same pattern as `casehub-engine` indexing).
 
 ---
 
@@ -361,187 +395,166 @@ goal; Jandex is not required for JPA entity discovery (EntityManager is injected
 
 ```
 runtime/src/main/java/io/casehub/clinical/memory/
-    ClinicalMemoryDomains.java      — PATIENT + SITE domain constants
-    ClinicalMemoryService.java      — central write/read facade
-    ClinicalPatientContext.java     — patient prior context value object
-    ClinicalSiteContext.java        — site compliance context value object
+    ClinicalMemoryDomains.java
+    ClinicalMemoryService.java
+    ClinicalPatientContext.java
+    ClinicalSiteContext.java
 
 runtime/src/main/resources/db/migration/default/
-    V111__add_tenant_id_to_entities.sql   — 6 ALTER TABLE statements
+    V116__add_tenant_id_domain_entities.sql
 ```
 
 ---
 
-## 7. Modified Files (complete)
+## 7. Modified Files
 
-### `api/` module
+### api/ module
 
 ```
 api/src/main/java/io/casehub/clinical/api/
-    AdverseEventReportedEvent.java          — + String tenantId()
-    ProtocolDeviationResolvedEvent.java     — + String tenantId()
-    SponsorNotificationRequest.java         — + String tenantId() (passes through to DurableSponsorNotifier)
+    AdverseEventReportedEvent.java         — + tenantId()
+    IrbApprovalResolvedEvent.java          — + tenantId()
+    ProtocolDeviationResolvedEvent.java    — + tenantId()
+    SponsorNotificationRequest.java        — + tenantId()
 ```
 
-### `runtime/` — entities
+### runtime/ domain entities
 
 ```
 runtime/src/main/java/io/casehub/clinical/entity/
-    ClinicalTrial.java                      — + String tenantId
-    TrialSite.java                          — + String tenantId
-    PatientEnrollment.java                  — + String tenantId
-    ProtocolDeviation.java                  — + String tenantId
-    AdverseEvent.java                       — + String tenantId
-    IrbApproval.java                        — + String tenantId
+    ClinicalTrial.java          — + String tenantId
+    TrialSite.java              — + String tenantId
+    PatientEnrollment.java      — + String tenantId
+    ProtocolDeviation.java      — + String tenantId
+    AdverseEvent.java           — + String tenantId
+    IrbApproval.java            — + String tenantId
 ```
 
-### `runtime/` — REST resources (CurrentPrincipal injection)
+### runtime/ REST resources (CurrentPrincipal injection + entity.tenantId population)
 
 ```
 runtime/src/main/java/io/casehub/clinical/resource/
-    TrialResource.java                      — inject CurrentPrincipal; stamp trial.tenantId
-    SiteResource.java                       — inject CurrentPrincipal; stamp site.tenantId
-    PatientResource.java                    — inject CurrentPrincipal; stamp enrollment.tenantId
-    DeviationResource.java                  — inject CurrentPrincipal; stamp deviation.tenantId
+    TrialResource.java          — inject CurrentPrincipal; trial.tenantId = principal.tenancyId()
+    SiteResource.java           — inject CurrentPrincipal; site.tenantId = principal.tenancyId()
+    PatientResource.java        — inject CurrentPrincipal; enrollment.tenantId = principal.tenancyId()
+    DeviationResource.java      — inject CurrentPrincipal; deviation.tenantId = principal.tenancyId()
 ```
 
-### `runtime/` — services
+### runtime/ services
 
 ```
 runtime/src/main/java/io/casehub/clinical/service/
-    AdverseEventService.java            — inject CurrentPrincipal; set ae.tenantId; storeAeReport;
-                                          stamp tenantId on AdverseEventReportedEvent
-    ProtocolDeviationService.java       — storeDeviationReport (tenantId from principal, already injected? check)
-    AeEscalationCaseService.java        — ctx.put("tenantId", ae.tenantId); queryPatientContext;
-                                          querySiteContext; ctx.put patientContext + siteContext
-    AeEscalationListener.java          — read tenantId from case context; storeAeOutcome (async, degrades)
-    PiResponseListener.java             — stamp deviation.tenantId on ProtocolDeviationResolvedEvent;
-                                          storePiDecision (async, degrades)
-    DeviationExpirer.java               — stamp d.tenantId on ProtocolDeviationResolvedEvent (in expireOne)
-    IrbDeviationCaseService.java        — stamp approval.tenantId = event.tenantId()
-                                          (mechanically affected by event change; no memory write in this release)
-    SponsorNotificationListener.java    — pass event.tenantId() through SponsorNotificationRequest
-                                          (mechanically affected by event change)
-    DurableSponsorNotifier.java         — set sn.tenantId = request.tenantId() on SponsorNotification
+    AdverseEventService.java
+        — inject CurrentPrincipal; ae.tenantId = principal.tenancyId() before ae.persist()
+        — inject ClinicalMemoryService; storeAeReport(ae.id, ae.enrollmentId, siteId, ae.grade, ae.tenantId)
+        — include ae.tenantId in AdverseEventReportedEvent constructor
+
+    ProtocolDeviationService.java
+        — inject ClinicalMemoryService; storeDeviationReport(deviation.id, deviation.siteId,
+          deviation.deviationType, deviation.severity, deviation.tenantId)
+
+    DeviationExpirer.java
+        — inject ClinicalMemoryService
+        — in expireOne(): storePiDecision(d.id, d.siteId, d.deviationType, PiApprovalStatus.EXPIRED, d.tenantId)
+        — include d.tenantId in ProtocolDeviationResolvedEvent constructor
+
+    AeEscalationCaseService.java
+        — inject ClinicalMemoryService
+        — in prepareAndMarkRequested(): ctx.put("tenantId", ae.tenantId);
+          queryPatientContext + querySiteContext; inject results into ctx
+
+    AeEscalationListener.java
+        — inject ClinicalMemoryService
+        — storeAeOutcome after ledgerWriter.writeCompletionEntry (tenantId from case context)
+        — include ae.tenantId (read from case context) in AeEscalationCompletedEvent: NO CHANGE
+          (AeEscalationCompletedEvent does not gain tenantId)
+
+    PiResponseListener.java
+        — inject ClinicalMemoryService; storePiDecision after ledgerWriter.writeResolutionEntry
+        — include deviation.tenantId in ProtocolDeviationResolvedEvent constructor
+
+    IrbDecisionListener.java
+        — include approval.tenantId in IrbApprovalResolvedEvent constructor
+        (no memory write — IRB domain deferred to #73)
+
+    IrbDeviationCaseService.java
+        — approval.tenantId = event.tenantId() in prepareAndCreateApproval()
+        (ProtocolDeviationResolvedEvent now carries tenantId)
+
+    SponsorNotificationListener.java
+        — pass event.tenantId() into SponsorNotificationRequest constructor
+
+    SponsorNotificationStore.java
+        — n.tenantId = req.tenantId() in createPending()
 ```
 
-### `runtime/` — configuration
+### runtime/ configuration
 
 ```
 runtime/src/main/resources/application.properties
-    — quarkus.flyway.locations: add classpath:db/memory/migration
-    — no selected-alternatives change (JpaMemoryStore is @ApplicationScoped)
-    — add quarkus.index-dependency entries for memory-jpa if Jandex probe needed
+    — add casehub-platform-memory-jpa index-dependency entries
 
 runtime/src/test/resources/application.properties
-    — quarkus.arc.selected-alternatives: append InMemoryMemoryStore
+    — add InMemoryMemoryStore to selected-alternatives
+
+runtime/pom.xml
+    — add casehub-platform-memory-jpa and casehub-platform-memory-inmem dependencies
 ```
 
-### `runtime/pom.xml`
+### Test files requiring constructor update
 
+*`AdverseEventReportedEvent` gains tenantId:*
 ```
-— add casehub-platform-memory-jpa (compile scope)
-— add casehub-platform-memory-inmem (test scope)
-```
-
-### Test files (compilation breakage from event record changes)
-
-Every construction site of `ProtocolDeviationResolvedEvent` and
-`AdverseEventReportedEvent` must add the new `tenantId` argument.
-
-```
-api/src/test/java/io/casehub/clinical/api/
-    ClinicalConstantsTest.java                   — 1 construction site
-
 runtime/src/test/java/io/casehub/clinical/service/
-    SponsorNotificationListenerTest.java         — 10+ construction sites (factory method + inline)
-    IrbDeviationCaseServiceTest.java             — 2 construction sites
-    IrbCommitteePolicySpiTest.java               — 1 factory method + 1 inline
-    IrbGateLifecycleTest.java                    — 1 factory method + 1 inline
-    AeEscalationListenerTest.java                — 0 (AeEscalationCompletedEvent unchanged)
-    TrialSafetySignalServiceTest.java            — 0 (AeEscalationCompletedEvent unchanged)
+    AeEscalationLifecycleTest.java               — aeEvent() factory method
+    SafetyOfficerNotificationIntegrationTest.java — 3 construction sites
+    SafetyOfficerNotificationListenerTest.java    — 10+ construction sites (factory + inline)
+    DsmbRollupTest.java                          — aeEvent() factory method
 ```
 
-`SponsorNotificationListenerTest` also constructs `SponsorNotificationRequest`;
-if that record changes, test construction sites must be updated.
+*`IrbApprovalResolvedEvent` gains tenantId:*
+```
+runtime/src/test/java/io/casehub/clinical/service/
+    IrbDecisionListenerTest.java                 — 1 construction site
+```
+
+*`ProtocolDeviationResolvedEvent` gains tenantId:*
+```
+runtime/src/test/java/io/casehub/clinical/service/
+    IrbCommitteePolicySpiTest.java               — criticalDeviationApproved() factory (2 sites)
+    IrbGateLifecycleTest.java                    — criticalDeviationApproved() factory (2 sites)
+    IrbDeviationCaseServiceTest.java             — 3 construction sites
+    SponsorNotificationListenerTest.java         — 8+ construction sites (all test methods)
+    PiResponseListenerMemoryTest.java            — new test (see §8)
+```
 
 ---
 
 ## 8. Testing
 
-### JQ verification note
-
-The patientContext and siteContext maps are injected into the engine's
-`initialContext` as `Map<String, Object>`. YAML bindings reference them as
-`.patientContext.hasPriorGrade3OrAbove`. CLAUDE.md documents JQ silent-failure
-patterns (e.g. missing `[]` on array iteration). The injection test must verify:
-1. The map key is present with the correct type (`boolean`, not `Boolean` boxed
-   in a nested map that JQ would navigate differently)
-2. A JQ expression test confirms `.patientContext.hasPriorGrade3OrAbove` evaluates
-   to `true` when a prior Grade 3 fact exists — not just that the map key is set
-
-| Test class | Type | What it verifies |
+| Test class | Type | Approach |
 |---|---|---|
-| `ClinicalMemoryServiceTest` | JUnit 5 unit | `InMemoryMemoryStore`; correct entityId, domain, text, attributes; exceptions swallowed |
-| `ClinicalPatientContextTest` | JUnit 5 unit | `hasPriorGrade3OrAbove()` grade boundary (GRADE_2=false, GRADE_3=true); `empty()` shape |
-| `ClinicalSiteContextTest` | JUnit 5 unit | `recentTimelineBreachCount()` counts correctly; no time-window filtering in context (store does it) |
-| `AeEscalationListenerMemoryTest` | `@QuarkusTest` | `@InjectMock ClinicalMemoryService`; `storeAeOutcome()` called with correct args after case completes |
-| `PiResponseListenerMemoryTest` | `@QuarkusTest` | `@InjectMock ClinicalMemoryService`; `storePiDecision()` called on DONE / DECLINE |
-| `AeEscalationContextInjectionTest` | `@QuarkusTest` | Seed store; call `prepareAndMarkRequested()`; assert `initialContext` shape AND JQ expression evaluation |
+| `ClinicalMemoryServiceTest` | JUnit 5 unit | `InMemoryMemoryStore`; verify text, entityId, domain, attributes; verify swallowing on store failure |
+| `ClinicalPatientContextTest` | JUnit 5 unit | Grade boundary (`GRADE_2` → false, `GRADE_3` → true); `empty()` shape; `hasPriorEscalation()` |
+| `ClinicalSiteContextTest` | JUnit 5 unit | `recentTimelineBreachCount()` counts TIMELINE_BREACH entries; `empty()` returns zero |
+| `AeEscalationListenerMemoryTest` | `@QuarkusTest` | `@InjectMock ClinicalMemoryService`; verify `storeAeOutcome` called with correct args; verify skipped when tenantId absent from context |
+| `PiResponseListenerMemoryTest` | `@QuarkusTest` | `@InjectMock ClinicalMemoryService`; DONE → `storePiDecision` with APPROVED; DECLINE → REJECTED |
+| `AeEscalationContextInjectionTest` | `@QuarkusTest` | Seed `InMemoryMemoryStore`; call `prepareAndMarkRequested()`; assert `initialContext` shape for both patientContext and siteContext; assert JQ expression `.patientContext.hasPriorGrade3OrAbove` evaluates correctly against the injected map |
 
-All `@InjectMock` beans stubbed in `@BeforeEach` per GE-20260604-4298f9.
+`AeEscalationContextInjectionTest` must include a JQ evaluation assertion — map key
+presence is not sufficient, since the engine evaluates JQ over `initialContext`. Use
+`JQEvaluator` (available from `casehub-platform-expression`) or inline JQ evaluation
+to confirm `.patientContext.hasPriorGrade3OrAbove` resolves to the expected boolean.
 
-`ProtocolDeviationService` does not have `CurrentPrincipal` currently — check
-whether it needs it for `storePiDecision`'s tenantId. In the write path:
-`storePiDecision` is called from `PiResponseListener` (async), which reads
-`deviation.tenantId` from the loaded entity. `ProtocolDeviationService` writes
-the deviation at creation time and does not directly call memory service on the
-SITE domain for the PI decision outcome. Confirm during implementation.
+All `@InjectMock` beans stub methods in `@BeforeEach` per GE-20260604-4298f9
+(stub or face null-return side effects across test methods).
 
 ---
 
-## 9. ARC42STORIES.MD — Layer 8
+## Open Issues Filed
 
-CaseMemoryStore integration is Layer 8 in the clinical layer taxonomy.
-ARC42STORIES.MD §4 (Layer Taxonomy table) and §9.2 (chapter index) must be
-updated with a Layer 8 entry upon completion of this issue. LAYER-LOG.md must
-also receive a Layer 8 entry before the branch is closed. Neither update is
-tracked separately — they are part of the closing checklist for #33.
-
----
-
-## 10. Open Issues Filed (before leaving brainstorming)
-
-| Issue | Repo | What |
-|---|---|---|
-| #70 | casehubio/clinical | Async memory writes degrade silently until platform#79 ships |
-| #71 | casehubio/clinical | Query-level tenant isolation for all domain entities (Panache queries unscoped) |
-| #72 | casehubio/clinical | DRUG domain: cross-site AE signals per protocol (recall path design required) |
-| #73 | casehubio/clinical | IRB domain: IRB decision precedent per deviation type (requires deviationType in IrbDecisionListener) |
-| platform#79 | casehubio/platform | Skip assertTenant when CDI request context is not active — trust MemoryInput.tenantId() directly |
-
----
-
-## Review Point Disposition
-
-This section records the outcome of each review finding for traceability.
-
-| Finding | Status | Resolution |
-|---|---|---|
-| C1 MemoryAttributeKeys fabricated | **Reviewer wrong** | Class exists at `io.casehub.platform.api.memory.MemoryAttributeKeys`; verified from JAR. No spec change. |
-| C2 JPA class name wrong | Partial — class name corrected | `JpaMemoryStore` is `@ApplicationScoped` (no `selected-alternatives`); `InMemoryMemoryStore` is `@Alternative @Priority(10)` (needs `selected-alternatives` in test). Spec updated. |
-| C3 IrbDecisionListener extra query | Resolved by D2 deferral | IRB domain deferred to #73. C3 is moot in this release. |
-| C4 Blast radius understated | Accepted | Modified files list expanded to include `DeviationExpirer`, `IrbDeviationCaseService`, `SponsorNotificationListener`, all test construction sites. |
-| C5 AdverseEventService no CurrentPrincipal | Accepted | Added to modified files; spec now traces tenantId population explicitly. |
-| C6 tenantId population unspecified | Accepted | All 7 entity creation paths traced in §1. |
-| D1 6-month window on wrong data | Accepted | `querySiteContext` uses `withSince(Instant.now().minus(180, DAYS)).withLimit(50)`. Context object does not filter — counts what store returns. |
-| D2 Write-only domains deferred cost | Accepted | DRUG and IRB domains deferred to #72 and #73. Only PATIENT and SITE in this release. |
-| D3 CONFIDENCE on deterministic facts | Accepted | CONFIDENCE removed from all clinical memory writes. |
-| D4 AeEscalationCompletedEvent.tenantId | Accepted | `AeEscalationCompletedEvent` does NOT gain tenantId. Listener reads tenantId from case context. |
-| D5 PreferenceProvider unexplained | Accepted | Removed from `ClinicalMemoryService`. |
-| D6 Query isolation unaddressed | Accepted | Explicitly scoped as column-only. Query isolation tracked in #71. |
-| D7 SponsorNotification omission | Addressed | `SponsorNotification.tenantId` already exists (nullable at V115). Population path: `SponsorNotificationRequest` gains `tenantId()`; `DurableSponsorNotifier` stamps it. `SponsorNotificationListener` in modified files; no memory write from sponsor path. |
-| S1 Six migrations for one concern | Accepted | Single V111 migration with 6 ALTER TABLE statements. |
-| S2 DRUG signals cross-tenant | Resolved by D2 deferral | Addressed in #72 spec when DRUG domain is designed. |
-| S3 JQ navigation unverified | Accepted | Testing section adds JQ expression evaluation requirement to `AeEscalationContextInjectionTest`. |
-| Minor sync/async terminology | Accepted | "request-context paths" vs "async observer paths" throughout. |
+- **casehubio/platform#79** — `assertTenant` async fix (blocking for full async write path)
+- **casehubio/clinical#70** — degradation tracking until platform#79 ships
+- **casehubio/clinical#71** — query isolation: tenant_id filter on all Panache reads
+- **casehubio/clinical#72** — DRUG domain: entityId convention, recall path design, cross-tenant pharmacovigilance tradeoff
+- **casehubio/clinical#73** — IRB domain: `IrbApproval.deviationType` gap (extra DB query vs. schema addition vs. entityId change)
