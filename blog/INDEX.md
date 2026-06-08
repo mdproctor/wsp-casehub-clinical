@@ -2,6 +2,7 @@
 
 | File | Date | Title |
 |------|------|-------|
+| [2026-06-08-mdp01-two-paths-one-model.md](2026-06-08-mdp01-two-paths-one-model.md) | 2026-06-08 | Two authoring paths, one canonical model |
 | [2026-06-07-mdp02-backlog-sweep-real-bug.md](2026-06-07-mdp02-backlog-sweep-real-bug.md) | 2026-06-07 | The backlog sweep that found a real bug |
 | [2026-06-07-mdp01-durable-sponsor-notifier.md](2026-06-07-mdp01-durable-sponsor-notifier.md) | 2026-06-07 | DurableSponsorNotifier — from fire-and-forget to durable delivery |
 | [2026-06-04-mdp01-who-notified-whom.md](2026-06-04-mdp01-who-notified-whom.md) | 2026-06-04 | Who notified whom — closing an audit gap in GCP sponsor notifications |
