@@ -199,5 +199,4 @@ No PI response endpoint — the PI's formal response arrives via `HumanParticipa
 
 | Issue | What | Blocker |
 |-------|------|---------|
-| casehubio/clinical#6 | IRB gate — `ProtocolDeviationResolvedEvent` with `IRB_REVIEW` | — |
 | casehubio/aml#20 | AML Flyway classpath collision — same fix as clinical | AML session |

@@ -1,4 +1,4 @@
-# Design Journal — issue-24-minor-cleanups
+# Design Journal — issue-50-dsl-companions
 
 ### 2026-05-22 · §Platform Integration
 
