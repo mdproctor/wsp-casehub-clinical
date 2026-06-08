@@ -1,0 +1,9 @@
+branch: issue-33-casememorystore-integration
+project-sha: f92160a29583c7748e379c839fd50f53c5dfb651
+date: 2026-06-08
+issue: 33
+issue-repo: casehubio/clinical
+covers: 33
+flyway-next-v: unknown
+design-repo: workspace
+design-section-hashes:
