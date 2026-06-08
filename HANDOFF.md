@@ -1,41 +1,40 @@
 # Handoff — casehub-clinical
-2026-06-07
+2026-06-08
 
 ## What happened this session
 
-Shipped #21 — `DurableSponsorNotifier`. Replaces `DefaultSponsorNotifier` (deleted) with a
-durable implementation: `SponsorNotification` entity (V115, default datasource),
-`SponsorNotificationLedgerEntry` (V2020, qhorus), retry policy via `SponsorNotificationRetryPolicy`
-(SingleValuePreference), scheduler-based delivery via `SponsorNotificationDeliveryService` +
-`SponsorNotificationRetryJob`. Key design choice: async-first delivery (notify() persists PENDING,
-scheduler delivers) to avoid holding Agroal connections during connector HTTP calls under multi-site
-load. 226 tests, 0 failures.
+Shipped #50 — fluent Java DSL companion classes for all three clinical YAML case
+definitions (`DeviationReviewCaseDefinition`, `AeEscalationCaseDefinition`,
+`TrialCoordinationCaseDefinition`) in production scope
+(`io.casehub.clinical.casedefinition`), plus `ClinicalCaseDefinitionEquivalenceTest`
+(plain JUnit 5 — no Quarkus). Companions use verbatim JQ strings so
+`JQExpressionEvaluator` record equality makes the equivalence test structurally
+meaningful. Key finding: `CaseDefinition.Builder` populates `def.getGoals()` and
+`setCompletion()` via independent code paths — dual registration required.
 
-Code review found one critical bug: deviation ledger writes inside the connector try-catch caused
-DELIVERED→FAILED regression after `store.markDelivered()` committed. Fixed by moving secondary
-writes outside the try-catch with isolated try-catch-log, plus terminal-status guards on
-`markFailed/Exhausted`. Garden entry GE-20260607-0bfc83, protocol PP-20260607-697a78.
-
-Two snapshot regressions also fixed: `ledger_subject_sequence` missing (switched to
-`InMemoryLedgerEntryRepository` in tests); qhorus `ChannelSlugValidator` rejecting UUID segments
-(`dev-<UUID>` prefix fix). Both filed as clinical#63 and issues in garden.
-
-`IrbDecisionListenerTest` fails due to `CallerRef.encode()` removed in new workadapter snapshot —
-pre-existing regression, tracked as clinical#67.
+TrialCoordinationYamlTest compile failure (pre-existing #68 fix) cherry-picked to
+main. Squashed to 4 commits, pushed fork + upstream.
 
 ## Current state
 
-- **Project repo:** `main` — pushed to fork + upstream (squashed to 1 commit)
+- **Project repo:** `main` — pushed to fork + upstream (squashed to 4 commits)
 - **Workspace:** `main`
+- **Pause stack:** `issue-68-compile-and-tenancy` (#68 compile fix + tenancy #69 work)
 
 ## Outstanding
 
 - Workspace branch `epic-multi-site-sub-case` past deletion window — retained per policy
+- Backup branches `backup/pre-squash-main-20260519`, `backup/pre-squash-main-20260523` past 14-day retention — confirm deletion when convenient
 
 ## What's next
 
+⚡ **engine#387 CLOSED 2026-06-07** — Layer 7 (trust routing, #8) is now unblocked.
+
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| Layer 7 | Trust routing | XL | High | Blocked on engine#387 (open) |
-
-*Updated: #67, #62, #60 closed — removed from backlog.*
+| #8 | Epic 8: Trust-weighted safety agent routing (Layer 7) | XL | High | **Unblocked** — engine#387 shipped 2026-06-07 |
+| #68/#69 | TrialCoordinationYamlTest fix + multi-tenancy coverage | M | Med | Paused; compile fix cherry-picked to main; tenancy still pending |
+| #9 | Epic 9: LLM supervisor mode | XL | High | Blocked on engine#102 |
+| #33 | CaseMemoryStore integration | L | High | Blocked on platform#27 |
+| #47 | ActionRiskClassifier oversight gate | M | High | Blocked on engine#402 |
+| #69 | Multi-tenancy — tenancyId coverage | M | Med | Blocked on work + ledger multi-tenancy |
