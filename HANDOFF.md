@@ -1,40 +1,34 @@
-# Handoff — casehub-clinical
-2026-06-08
+# Session Handover — 2026-06-09
 
-## What happened this session
+## Last Session
 
-Shipped #50 — fluent Java DSL companion classes for all three clinical YAML case
-definitions (`DeviationReviewCaseDefinition`, `AeEscalationCaseDefinition`,
-`TrialCoordinationCaseDefinition`) in production scope
-(`io.casehub.clinical.casedefinition`), plus `ClinicalCaseDefinitionEquivalenceTest`
-(plain JUnit 5 — no Quarkus). Companions use verbatim JQ strings so
-`JQExpressionEvaluator` record equality makes the equivalence test structurally
-meaningful. Key finding: `CaseDefinition.Builder` populates `def.getGoals()` and
-`setCompletion()` via independent code paths — dual registration required.
+Implemented CaseMemoryStore integration (clinical#33) and multi-tenancy foundation (clinical#69) — both closed. V116 migration adds `tenant_id` to 6 domain tables; 3 CDI events and `SponsorNotificationRequest` gain `String tenantId`; all entity creation sites stamped. `ClinicalMemoryService` (PATIENT + SITE domains) wired into AE escalation and deviation lifecycle. `AeEscalationCaseService.prepareAndMarkRequested()` now injects `patientContext` + `siteContext` into engine `initialContext`; JQ-navigable. Branch closed, squashed to 1 commit on `casehubio/clinical:main`.
 
-TrialCoordinationYamlTest compile failure (pre-existing #68 fix) cherry-picked to
-main. Squashed to 4 commits, pushed fork + upstream.
+## Immediate Next Step
 
-## Current state
+Run `/work` to start the next issue. Layer 7 (trust routing, #10) is the natural next epic. Check `docs/AGENTIC-HARNESS-GUIDE.md` for the current layer status before starting.
 
-- **Project repo:** `main` — pushed to fork + upstream (squashed to 4 commits)
-- **Workspace:** `main`
-- **Pause stack:** `issue-68-compile-and-tenancy` (#68 compile fix + tenancy #69 work)
+## What's Left
 
-## Outstanding
+- casehubio/clinical#71 — query isolation: per-tenant Panache filters on all 6 entity types · M · Med
+- casehubio/clinical#72 — DRUG memory domain: entityId convention + cross-tenant pharmacovigilance tradeoff · S · Med
+- casehubio/clinical#73 — IRB memory domain: `IrbApproval.deviationType` gap (extra DB query vs schema change) · S · Med
+- casehubio/clinical#74 — Remove `ClinicalTestLedgerRepository` workaround when casehub-ledger-memory updates to 2-arg `LedgerEntryRepository` API · XS · Low
+- casehubio/clinical#75 — `toContextMap()` facts shape missing `grade` field (spec contract gap) · XS · Low
+- casehubio/parent#208 — Sync `docs/repos/casehub-clinical.md` for memory store deps + `ClinicalMemoryService` · S · Low
+- 5 tests fail via qhorus `LedgerWriteService` calling old 1-arg ledger API — unblocked by casehub-qhorus SNAPSHOT update (blocked externally, no clinical action)
+- ARC42STORIES.MD §9.4 Layer 7+ entries for memory integration not yet added — will come via journal merge at next branch close
 
-- Workspace branch `epic-multi-site-sub-case` past deletion window — retained per policy
-- Backup branches `backup/pre-squash-main-20260519`, `backup/pre-squash-main-20260523` past 14-day retention — confirm deletion when convenient
-
-## What's next
-
-⚡ **engine#387 CLOSED 2026-06-07** — Layer 7 (trust routing, #8) is now unblocked.
+## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #8 | Epic 8: Trust-weighted safety agent routing (Layer 7) | XL | High | **Unblocked** — engine#387 shipped 2026-06-07 |
-| #68/#69 | TrialCoordinationYamlTest fix + multi-tenancy coverage | M | Med | Paused; compile fix cherry-picked to main; tenancy still pending |
-| #9 | Epic 9: LLM supervisor mode | XL | High | Blocked on engine#102 |
-| #33 | CaseMemoryStore integration | L | High | Blocked on platform#27 |
-| #47 | ActionRiskClassifier oversight gate | M | High | Blocked on engine#402 |
-| #69 | Multi-tenancy — tenancyId coverage | M | Med | Blocked on work + ledger multi-tenancy |
+| #10 | Trust routing — Layer 7 | L | High | Next layer per harness guide |
+| #8 | ClinicalAgent comparison / Layer 8 | M | Med | After trust routing |
+| — | #74 — ledger-memory sync | XS | Low | External unblock required |
+
+## References
+
+- Spec: `specs/2026-06-08-casememorystore-design.md`
+- Blog: `blog/2026-06-09-mdp01-memory-arrives-with-baggage.md`
+- Last commit: `45d467d feat(memory): wire CaseMemoryStore + multi-tenancy foundation`
