@@ -1,6 +1,6 @@
 # CaseMemoryStore Integration — casehub-clinical
 
-**Date:** 2026-06-08 (revised 2026-06-09)
+**Date:** 2026-06-08 (revised 2026-06-09, 2026-06-09b)
 **Issue:** casehubio/clinical#33 (closes), casehubio/clinical#69 (closes)
 **Branch:** issue-33-casememorystore-integration
 **Platform dependency:** casehubio/platform#79 (assertTenant async fix)
@@ -99,16 +99,17 @@ the `tenantId` field adds a single field read, no additional DB query.
 
 **Blast radius — `AdverseEventReportedEvent` constructor change:**
 
-The record gains `String tenantId`, breaking all construction sites:
+The record gains `String tenantId`. CDI observer method signatures are unaffected — only
+construction sites break.
 
-*Emitter:*
+*Emitter (must update constructor call):*
 - `AdverseEventService.reportAdverseEvent()` — stamps `principal.tenancyId()`
 
-*Observers (implementation unchanged — compile error only):*
-- `AeEscalationCaseService.onAdverseEventReported()` — reads `event.tenantId()` for case context
-- `SafetyOfficerNotificationListener.onAeReported()` — reads `event.tenantId()` if needed
+*Observers (no change — not construction sites):*
+- `AeEscalationCaseService.onAdverseEventReported()` — reads `ae.tenantId` from entity in `prepareAndMarkRequested()`; does not use `event.tenantId()`
+- `SafetyOfficerNotificationListener.onAeReported()` — does not use `tenantId`
 
-*Test files with construction sites:*
+*Test files with construction sites (all must add tenantId argument):*
 - `AeEscalationLifecycleTest` — 1 factory method (`aeEvent()`)
 - `SafetyOfficerNotificationIntegrationTest` — 3 construction sites
 - `SafetyOfficerNotificationListenerTest` — 10+ construction sites (factory + inline)
@@ -116,27 +117,32 @@ The record gains `String tenantId`, breaking all construction sites:
 
 **Blast radius — `IrbApprovalResolvedEvent` constructor change:**
 
-The record gains `String tenantId`, breaking all construction sites:
+The record gains `String tenantId`. CDI observer method signatures are unaffected — only
+construction sites break.
 
-*Emitter:*
+*Emitter (must update constructor call):*
 - `IrbDecisionListener.onWorkItemLifecycle()` — stamps `approval.tenantId`
+
+*Observers (no change — not construction sites):*
+- No production consumers outside the emitter.
 
 *Test files with construction sites:*
 - `IrbDecisionListenerTest` — 1 construction site
 
 **Blast radius — `ProtocolDeviationResolvedEvent` constructor change:**
 
-The record gains `String tenantId` as a new field, breaking all construction sites. Complete enumeration:
+The record gains `String tenantId`. CDI observer method signatures are unaffected — only
+construction sites break.
 
 *Emitters (must add `deviation.tenantId` or `d.tenantId`):*
 - `PiResponseListener.process()` — DONE / DECLINE paths
 - `DeviationExpirer.expireOne()` — EXPIRED path
 
-*Observers (compile error if event record changes; implementation unchanged):*
+*Observers (no change — not construction sites; will use `event.tenantId()` for downstream work):*
 - `IrbDeviationCaseService.onDeviationResolved()` — reads `event.tenantId()` to set `approval.tenantId`
 - `SponsorNotificationListener.onDeviationResolved()` — reads `event.tenantId()` to populate `SponsorNotificationRequest`
 
-*Test files with construction sites (all must be updated):*
+*Test files with construction sites (all must add tenantId argument):*
 - `PiResponseListenerMemoryTest` — 2 construction sites (new test, see §8)
 - `IrbCommitteePolicySpiTest` — 2 construction sites (`criticalDeviationApproved()` factory)
 - `IrbGateLifecycleTest` — 2 construction sites (`criticalDeviationApproved()` factory)
@@ -302,13 +308,6 @@ When platform#79 ships, all these writes activate automatically — no clinical 
 | `AeEscalationListener.onCaseLifecycle()` | `storeAeOutcome(...)` | `PATIENT` | case context `"tenantId"` key |
 | `PiResponseListener.process()` | `storePiDecision(...)` | `SITE` | `deviation.tenantId` — entity field |
 
-All async writes are wrapped in `ClinicalMemoryService`'s try/catch. `platform#79`
-fixes `assertTenant` in async context (currently throws `SecurityException` when
-`CurrentPrincipal` is unavailable). Until it ships, every async write is attempted
-and silently caught as WARN — the case runs exactly as today.
-
-When platform#79 ships, async writes activate automatically — no clinical code change needed.
-
 ### Recall — `AeEscalationCaseService.prepareAndMarkRequested()`
 
 Two additions inside the existing `@Transactional` method:
@@ -327,9 +326,8 @@ ctx.put("patientContext", patientCtx.toContextMap());
 ctx.put("siteContext",    siteCtx.toContextMap());
 ```
 
-Until platform#79 ships, both context maps are always `empty()` because async writes
-(which populate the store) silently fail. The case runs exactly as today.
-When the fix ships, historical enrichment activates automatically.
+Until platform#79 ships, both context maps are always `empty()` — non-request-context
+writes that populate the store are absorbed as WARN. The case runs exactly as today.
 
 ### `AeEscalationListener` addition
 
