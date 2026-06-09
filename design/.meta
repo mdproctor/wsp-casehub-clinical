@@ -1,0 +1,9 @@
+branch: issue-71-tenant-query-isolation
+project-sha: 1c8a22a04979dfc0872be9d7ddb298582a6f8db2
+date: 2026-06-09
+issue: 71
+issue-repo: casehubio/clinical
+covers: 71
+flyway-next-v: unknown
+design-repo: workspace
+design-section-hashes: 
