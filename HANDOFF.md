@@ -1,6 +1,6 @@
 # Session Handover — 2026-06-09
 
-*Updated: casehubio/parent#208 closed — removed from backlog.*
+*Updated: #72, #73, #74, #75 closed — removed from backlog.*
 
 ## Last Session
 
@@ -13,11 +13,6 @@ Run `/work` to start the next issue. Layer 7 (trust routing, #10) is the natural
 ## What's Left
 
 - casehubio/clinical#71 — query isolation: per-tenant Panache filters on all 6 entity types · M · Med
-- casehubio/clinical#72 — DRUG memory domain: entityId convention + cross-tenant pharmacovigilance tradeoff · S · Med
-- casehubio/clinical#73 — IRB memory domain: `IrbApproval.deviationType` gap (extra DB query vs schema change) · S · Med
-- casehubio/clinical#74 — Remove `ClinicalTestLedgerRepository` workaround when casehub-ledger-memory updates to 2-arg `LedgerEntryRepository` API · XS · Low
-- casehubio/clinical#75 — `toContextMap()` facts shape missing `grade` field (spec contract gap) · XS · Low
-- 5 tests fail via qhorus `LedgerWriteService` calling old 1-arg ledger API — unblocked by casehub-qhorus SNAPSHOT update (blocked externally, no clinical action)
 - ARC42STORIES.MD §9.4 Layer 7+ entries for memory integration not yet added — will come via journal merge at next branch close
 
 ## What's Next
