@@ -1,0 +1,9 @@
+branch: issue-75-trailing-fixes
+project-sha: 45d467da7c74ff36161b7b130145efb0af63efd4
+date: 2026-06-09
+issue: 75
+issue-repo: casehubio/clinical
+covers: 75,74,72,73
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
