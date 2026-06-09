@@ -1,5 +1,7 @@
 # Session Handover — 2026-06-09
 
+*Updated: casehubio/parent#208 closed — removed from backlog.*
+
 ## Last Session
 
 Implemented CaseMemoryStore integration (clinical#33) and multi-tenancy foundation (clinical#69) — both closed. V116 migration adds `tenant_id` to 6 domain tables; 3 CDI events and `SponsorNotificationRequest` gain `String tenantId`; all entity creation sites stamped. `ClinicalMemoryService` (PATIENT + SITE domains) wired into AE escalation and deviation lifecycle. `AeEscalationCaseService.prepareAndMarkRequested()` now injects `patientContext` + `siteContext` into engine `initialContext`; JQ-navigable. Branch closed, squashed to 1 commit on `casehubio/clinical:main`.
@@ -15,7 +17,6 @@ Run `/work` to start the next issue. Layer 7 (trust routing, #10) is the natural
 - casehubio/clinical#73 — IRB memory domain: `IrbApproval.deviationType` gap (extra DB query vs schema change) · S · Med
 - casehubio/clinical#74 — Remove `ClinicalTestLedgerRepository` workaround when casehub-ledger-memory updates to 2-arg `LedgerEntryRepository` API · XS · Low
 - casehubio/clinical#75 — `toContextMap()` facts shape missing `grade` field (spec contract gap) · XS · Low
-- casehubio/parent#208 — Sync `docs/repos/casehub-clinical.md` for memory store deps + `ClinicalMemoryService` · S · Low
 - 5 tests fail via qhorus `LedgerWriteService` calling old 1-arg ledger API — unblocked by casehub-qhorus SNAPSHOT update (blocked externally, no clinical action)
 - ARC42STORIES.MD §9.4 Layer 7+ entries for memory integration not yet added — will come via journal merge at next branch close
 
