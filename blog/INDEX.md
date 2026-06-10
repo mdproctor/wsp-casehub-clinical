@@ -30,3 +30,4 @@
 | [2026-05-30-mdp01-a-domain-event-fires-once.md](2026-05-30-mdp01-a-domain-event-fires-once.md) | 2026-05-30 | AE safety officer notification — trigger choice, SPI shape, GCP/FDA ledger compliance |
 | [2026-05-30-mdp02-silence-is-not-an-audit-trail.md](2026-05-30-mdp02-silence-is-not-an-audit-trail.md) | 2026-05-30 | #45/#46 — observer fallback, actorId alignment, Hibernate flush timing |
 | [2026-05-31-mdp01-when-caught-exceptions-commit.md](2026-05-31-mdp01-when-caught-exceptions-commit.md) | 2026-05-31 | #48 — ledgerWritten flag, double-commit trap, AeEscalation + IrbDecision observer fallback |
+| [2026-06-10-mdp01-the-filter-that-wasnt-there.md](2026-06-10-mdp01-the-filter-that-wasnt-there.md) | 2026-06-10 | Why Hibernate @Filter doesn't apply to findById(), and the entity-helper pattern for per-request tenant isolation |
