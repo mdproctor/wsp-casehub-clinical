@@ -1,4 +1,4 @@
-# Branch Closed — issue-33-casememorystore-integration
-**Date:** 2026-06-09
-**Issue:** #33
-**Covers:** 33
+# Branch Closed — issue-71-tenant-query-isolation
+**Date:** 2026-06-10
+**Issue:** #71
+**Covers:** 71
