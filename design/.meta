@@ -1,0 +1,9 @@
+branch: issue-76-susar-fix-gdpr
+project-sha: 5be70edcb5e56ba807c0216ace4dbf5ad12d16ec
+date: 2026-06-12
+issue: 76
+issue-repo: casehubio/clinical
+covers: 76,77,7
+flyway-next-v: 119
+design-repo: workspace
+design-section-hashes: 
