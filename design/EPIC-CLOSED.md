@@ -1,4 +1,4 @@
-# Branch Closed — issue-71-tenant-query-isolation
-**Date:** 2026-06-10
-**Issue:** #71
-**Covers:** 71
+# Branch Closed — issue-76-susar-fix-gdpr
+**Date:** 2026-06-14
+**Issue:** #76
+**Covers:** 76,77,7
