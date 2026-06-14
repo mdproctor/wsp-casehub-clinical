@@ -1,0 +1,9 @@
+branch: issue-8-trust-weighted-safety-routing
+project-sha: 13c43209d49c64d55201a96fff4af8ced2736563
+date: 2026-06-14
+issue: 8
+issue-repo: casehubio/clinical
+covers: 8
+flyway-next-v: unknown
+design-repo: workspace
+design-section-hashes: 
