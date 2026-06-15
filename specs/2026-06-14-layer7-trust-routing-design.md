@@ -1,6 +1,6 @@
 # Layer 7 — Trust-Weighted Safety Agent Routing
 
-**Date:** 2026-06-14 (revised 2026-06-15 r2)
+**Date:** 2026-06-14 (revised 2026-06-15 r3)
 **Issue:** casehubio/clinical#8  
 **Branch:** issue-8-trust-weighted-safety-routing  
 **Status:** Approved for implementation
@@ -32,7 +32,7 @@ Three independent capabilities:
        (subjectId = caseId, actorId = workerId, capabilityTag)
        FIRES ONLY for capability-based agent workers — NOT humanTask bindings
 
-   SusarAgentAttestationWriter (@DefaultBean @ApplicationScoped)
+   SusarAgentAttestationWriter (@ApplicationScoped)
      → @ConsumeEvent("casehub.action.gate.approved")   → ENDORSED
      → @ConsumeEvent("casehub.action.gate.rejected")   → CHALLENGED
      → @ConsumeEvent("casehub.action.gate.expired")    → CHALLENGED
@@ -71,12 +71,17 @@ No SPI layer. The attestation logic is two lines: `APPROVED → ENDORSED`, `REJE
 
 ### SusarAgentAttestationWriter (`runtime/service/`)
 
-`@DefaultBean @ApplicationScoped`. Three `@ConsumeEvent` methods, same three gate addresses as `SusarGateDecisionListener`. Same discrimination mechanism: `AdverseEvent.findBySusarOversightCaseId(event.caseId())`.
+`@ApplicationScoped` — plain, no `@DefaultBean`. `@DefaultBean` displacement requires a shared interface type; without one, a future competing class would be a different type and both would register as separate `@ConsumeEvent` consumers (no CDI ambiguity to resolve, no displacement). Future replacement via `quarkus.arc.exclude-types` if needed.
+
+Three `@ConsumeEvent` methods, same three gate addresses as `SusarGateDecisionListener`. Same discrimination: `AdverseEvent.findBySusarOversightCaseId(event.caseId())`.
+
+`attestorType` follows the `SusarDecisionLedgerWriter` pattern exactly (line 44: `decidedBy != null ? ActorType.HUMAN : ActorType.SYSTEM`): HUMAN when a named human actor approved/rejected, SYSTEM when the service itself acts (expiry). This matters for EigenTrust — `TrustScoreJob.runEigenTrustPass()` builds a social trust graph from attestations keyed by attestorId and type; recording a human clinical reviewer as SYSTEM misrepresents the social trust signal.
 
 ```java
-@DefaultBean
 @ApplicationScoped
 public class SusarAgentAttestationWriter {
+
+    private static final Logger LOG = Logger.getLogger(SusarAgentAttestationWriter.class);
 
     @Inject CaseLedgerEntryRepository caseLedgerEntryRepository;
     @Inject LedgerEntryRepository ledgerEntryRepository;
@@ -113,8 +118,10 @@ public class SusarAgentAttestationWriter {
                             attestation.id = UUID.randomUUID();
                             attestation.ledgerEntryId = entry.id;
                             attestation.subjectId = ae.susarOversightCaseId;
-                            attestation.attestorId = attestorId;
-                            attestation.attestorType = ActorType.SYSTEM;
+                            attestation.attestorId = attestorId != null ? attestorId : ClinicalActors.CLINICAL_SERVICE;
+                            // Mirror SusarDecisionLedgerWriter pattern: HUMAN when named actor present, SYSTEM otherwise
+                            attestation.attestorType = ClinicalActors.CLINICAL_SERVICE.equals(attestorId) || attestorId == null
+                                    ? ActorType.SYSTEM : ActorType.HUMAN;
                             attestation.attestorRole = "safety-gate-outcome";
                             attestation.verdict = verdict;
                             attestation.capabilityTag = ClinicalCapabilities.SAFETY_MONITORING;
@@ -128,6 +135,8 @@ public class SusarAgentAttestationWriter {
     }
 }
 ```
+
+**Test isolation note:** `SusarAgentAttestationWriter` fires in any `@QuarkusTest` that triggers SUSAR gate events. The null-AE path returns immediately; the absent-WorkerDecisionEntry path logs WARN and returns. No test failures expected; do NOT add this to `quarkus.arc.exclude-types`.
 
 **Why gate events, not AeEscalationCompletedEvent:**
 - The safety-monitoring agent runs in `susar-oversight.yaml` via `capability: safety-monitoring` binding
@@ -257,6 +266,18 @@ spec:
 
 **Ledger write in Phase 1** — same transaction as the status update. `RegulatorySubmissionLedgerEntry` has `aeId`, `grade`, `filedAt`. `domainContentBytes()`: `String.join("|", aeId, grade)`. V2023 migration (qhorus datasource).
 
+`RegulatorySubmissionLedgerWriter` must call `entry.attach(ClinicalComplianceSupplement.regulatorySubmission())` before `ledgerEntryRepository.save()`. The `LedgerProcessor` build-time validator requires this on any subclass with `@Column` fields — CDI deployment fails without it. Add `regulatorySubmission()` to `ClinicalComplianceSupplement`:
+
+```java
+public static ComplianceSupplement regulatorySubmission() {
+    ComplianceSupplement s = new ComplianceSupplement();
+    s.planRef = "21 CFR 312.32(c)(1)(i) — IND expedited safety reporting, unexpected fatal/life-threatening AE";
+    s.algorithmRef = "RegulatorySubmissionCaseService (rule-based Grade 5 + unexpected criteria)";
+    s.humanOverrideAvailable = true;
+    return s;
+}
+```
+
 ### Concurrent observer chain for Grade 5 + unexpected AE:
 ```
 AdverseEventReportedEvent
@@ -375,6 +396,7 @@ Full `TrustWeightedAgentStrategy` end-to-end routing in `@QuarkusTest` — Quart
 | `runtime/src/test/java/...AeEscalationListenerTest.java` | Add `unexpected` arg to event constructors |
 | `runtime/src/test/java/...TrialSafetySignalServiceTest.java` | Add `unexpected` arg to event constructors (line 90) |
 | `runtime/src/test/java/...AeEscalationListenerMemoryTest.java` | Add `unexpected` arg to any event construction |
+| `runtime/src/main/java/io/casehub/clinical/service/ClinicalComplianceSupplement.java` | Add `regulatorySubmission()` factory method (21 CFR 312.32(c)(1)(i)) |
 
 ---
 
