@@ -1,6 +1,6 @@
 # Layer 7 — Trust-Weighted Safety Agent Routing
 
-**Date:** 2026-06-14 (revised 2026-06-15 r3)
+**Date:** 2026-06-14 (revised 2026-06-15 r4)
 **Issue:** casehubio/clinical#8  
 **Branch:** issue-8-trust-weighted-safety-routing  
 **Status:** Approved for implementation
@@ -67,7 +67,7 @@ Three independent capabilities:
 
 ## §1 SusarAgentAttestationWriter
 
-No SPI layer. The attestation logic is two lines: `APPROVED → ENDORSED`, `REJECTED/EXPIRED → CHALLENGED`. A future ML-based attestation strategy displaces the whole writer via `@DefaultBean` — same displacement contract as `SusarCriteriaEvaluator`, without introducing an interface that adds no architectural value.
+No SPI layer. The attestation logic is two lines: `APPROVED → ENDORSED`, `REJECTED/EXPIRED → CHALLENGED`. Future replacement via `quarkus.arc.exclude-types` if a different strategy is needed.
 
 ### SusarAgentAttestationWriter (`runtime/service/`)
 
@@ -260,7 +260,7 @@ spec:
 
 **`RegulatorySubmissionCaseService`** — three-phase `@ObservesAsync AdverseEventReportedEvent` (concurrent with `AeEscalationCaseService` and `SusarOversightCaseService`):
 
-- **Phase 1** (`@Transactional`): load `AdverseEvent`; check `grade == GRADE_5 && unexpected`; idempotency guard (`regulatorySubmissionStatus != NONE → return null`); set `regulatorySubmissionStatus = PENDING`; write `RegulatorySubmissionLedgerEntry` (in same TX); build case context `{aeId, grade, unexpected, siteId, tenantId}`
+- **Phase 1** (`@Transactional`): load `AdverseEvent`; check `grade == GRADE_5 && unexpected`; idempotency guard (`regulatorySubmissionStatus != NONE → return null`); set `regulatorySubmissionStatus = PENDING`; call injected `RegulatorySubmissionLedgerWriter.writeEntry(ae)` (same TX, passing `ae.tenantId`); build case context `{aeId, grade, unexpected, siteId, tenantId}`
 - **Phase 2**: `caseHub.startCase(ctx).join()` outside any transaction
 - **Phase 3** (`@Transactional`): persist `regulatorySubmissionCaseId`
 
@@ -372,7 +372,7 @@ Full `TrustWeightedAgentStrategy` end-to-end routing in `@QuarkusTest` — Quart
 
 | File | Purpose |
 |---|---|
-| `runtime/src/main/java/io/casehub/clinical/service/SusarAgentAttestationWriter.java` | `@DefaultBean @ApplicationScoped`; observes 3 gate events; writes `LedgerAttestation` anchored to `WorkerDecisionEntry` in SUSAR oversight case |
+| `runtime/src/main/java/io/casehub/clinical/service/SusarAgentAttestationWriter.java` | `@ApplicationScoped`; observes 3 gate events; writes `LedgerAttestation` anchored to `WorkerDecisionEntry` in SUSAR oversight case |
 | `runtime/src/main/java/io/casehub/clinical/service/ClinicalTrustRoutingPolicyProvider.java` | Per-capability policies (`@ApplicationScoped`, displaces `@DefaultBean`) |
 | `runtime/src/main/java/io/casehub/clinical/service/ClinicalRegulatorySubmissionCaseHub.java` | `YamlCaseHub` subclass |
 | `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionCaseService.java` | Three-phase `@ObservesAsync` observer |
