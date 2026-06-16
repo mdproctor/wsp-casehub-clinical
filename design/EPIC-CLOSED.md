@@ -1,4 +1,4 @@
-# Branch Closed — issue-71-tenant-query-isolation
-**Date:** 2026-06-10
-**Issue:** #71
-**Covers:** 71
+# Branch Closed — issue-8-trust-weighted-safety-routing
+**Date:** 2026-06-16
+**Issue:** #8
+**Covers:** 8
