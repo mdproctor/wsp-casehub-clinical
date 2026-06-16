@@ -80,7 +80,9 @@
       "Skill(publish-blog)",
       "Bash(date -v +14d +%Y-%m-%d)",
       "Bash(xargs -I{} basename {})",
-      "Bash(mvn compile *)"
+      "Bash(mvn compile *)",
+      "Bash(xargs -0 cat)",
+      "Skill(work-end)"
     ]
   }
 }
