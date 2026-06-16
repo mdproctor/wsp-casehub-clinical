@@ -2,6 +2,7 @@
 
 | File | Date | Title |
 |------|------|-------|
+| [2026-06-17-mdp01-grade3-ind-assertion-trap.md](2026-06-17-mdp01-grade3-ind-assertion-trap.md) | 2026-06-17 | Grade 3 IND reporting, and an assertion that almost passed for the wrong grade |
 | [2026-06-09-mdp02-the-workaround-that-wasnt.md](2026-06-09-mdp02-the-workaround-that-wasnt.md) | 2026-06-09 | The workaround that wasn't |
 | [2026-06-09-mdp01-memory-arrives-with-baggage.md](2026-06-09-mdp01-memory-arrives-with-baggage.md) | 2026-06-09 | Memory arrives with baggage |
 | [2026-06-08-mdp01-two-paths-one-model.md](2026-06-08-mdp01-two-paths-one-model.md) | 2026-06-08 | Two authoring paths, one canonical model |
