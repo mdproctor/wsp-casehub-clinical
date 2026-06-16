@@ -1,0 +1,9 @@
+branch: issue-80-clock-grade3-susar
+project-sha: eaa550c891f1ea7df6b7fcf7c929450e05736392
+date: 2026-06-16
+issue: 80
+issue-repo: casehubio/clinical
+covers: 80,81
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
