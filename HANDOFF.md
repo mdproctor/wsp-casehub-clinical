@@ -8,9 +8,10 @@ Two issues closed on a single branch. #80: Clock injection into `SusarAgentAttes
 
 Pick up #10 (3-site showcase + ClinicalAgent comparison) — now the last remaining dependency before the showcase.
 
+*Updated: casehubio/parent#254 closed — removed from backlog.*
+
 ## What's Left
 
-- `casehubio/parent#254` — sync `casehub-clinical.md` deep-dive for Layer 7 + Grade 3 IND completion · S · Low
 - `casehubio/clinical#82` — Grade 4 (life-threatening) + unexpected → IND 7-day (c)(1)(i); extends `isIndReportable()` and `indReportingWindow()` · XS · Low
 - `casehubio/clinical#83` — IND reporting deadline enforced as WorkItem `claimDeadline` with auto-escalation · M · Med
 - `SusarOversightLifecycleTest` accepts REQUESTED or COMPLETED — gate creation path (via Quartz) never fires in `@QuarkusTest`; documented in CLAUDE.md and GE-20260614-b97659 · S · Low
