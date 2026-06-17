@@ -82,7 +82,8 @@
       "Bash(xargs -I{} basename {})",
       "Bash(mvn compile *)",
       "Bash(xargs -0 cat)",
-      "Skill(work-end)"
+      "Skill(work-end)",
+      "Bash(GIT_SEQUENCE_EDITOR=\"cp /tmp/squash-plan-clinical.txt\" git -C /Users/mdproctor/claude/casehub/clinical rebase -i origin/main)"
     ]
   }
 }
