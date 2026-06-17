@@ -1,28 +1,32 @@
-# Session Handover — 2026-06-16
+# Session Handover — 2026-06-17
 
 ## Last Session
 
-Layer 7 trust routing (#8) completed and closed. Four rounds of spec review corrected fatal errors in the attestation mechanism before implementation began. 11 sequential tasks shipped: `ClinicalTrustRoutingPolicyProvider`, `SusarAgentAttestationWriter` (LedgerAttestation via gate events), `RegulatorySubmissionCaseService` (Grade 5 + unexpected → IND reporting), `AeEscalationCompletedEvent.unexpected`. 374 tests green. Squashed 18→10 commits, pushed to upstream and fork. Branch closed, #8 closed.
+Two issues closed on a single branch. #80: Clock injection into `SusarAgentAttestationWriter` — three `Instant.now()` calls replaced with `@Inject Clock clock`; `writeAttestation()` private param removed. #81: Grade 3 IND 15-day expedited path — `isIndReportable()` predicate, `indReportingWindow()` switch, `ClinicalComplianceSupplement.regulatorySubmission(CtcaeGrade)` grade-aware factory. 379 tests green. Squashed 10→3 commits, pushed to fork and upstream. Both issues closed.
 
 ## Immediate Next Step
 
-Pick up #10 (3-site showcase + ClinicalAgent comparison) — the final L7 Layer is the last dependency before the showcase.
+Pick up #10 (3-site showcase + ClinicalAgent comparison) — now the last remaining dependency before the showcase.
 
 ## What's Left
 
-- `casehubio/parent#254` — sync `casehub-clinical.md` deep-dive for Layer 7 completion · S · Low
-- `casehubio/clinical#80` — inject Clock into `SusarAgentAttestationWriter` for testable timestamps · XS · Low
+- `casehubio/parent#254` — sync `casehub-clinical.md` deep-dive for Layer 7 + Grade 3 IND completion · S · Low
+- `casehubio/clinical#82` — Grade 4 (life-threatening) + unexpected → IND 7-day (c)(1)(i); extends `isIndReportable()` and `indReportingWindow()` · XS · Low
+- `casehubio/clinical#83` — IND reporting deadline enforced as WorkItem `claimDeadline` with auto-escalation · M · Med
 - `SusarOversightLifecycleTest` accepts REQUESTED or COMPLETED — gate creation path (via Quartz) never fires in `@QuarkusTest`; documented in CLAUDE.md and GE-20260614-b97659 · S · Low
+- `mvn install` production augmentation CDI ambiguity (`MockCurrentPrincipal` + `FixedCurrentPrincipal` under `package` goal) — pre-existing, not introduced this branch; `mvn test -pl runtime` unaffected (379/0/0) · S · Med
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #10 | 3-site showcase + ClinicalAgent comparison | XL | High | L7 now unblocked |
-| — | Grade 3 SUSAR 15-day expedited path (21 CFR 312.32(c)(1)(ii)) | M | Med | Deferred from #77 |
+| #10 | 3-site showcase + ClinicalAgent comparison | XL | High | Grade 3 path now complete |
+| #82 | Grade 4 IND 7-day path | XS | Low | One-liner in isIndReportable + indReportingWindow + regulatorySubmission |
+| #83 | IND deadline enforcement via WorkItem claimDeadline | M | Med | Requires regulatory-submission.yaml humanTask binding change |
 
 ## References
 
-- Blog: `blog/2026-06-16-mdp01-four-rounds-to-get-the-attestation-right.md`
-- Spec: `docs/specs/2026-06-14-layer7-trust-routing-design.md`
-- Garden: `GE-20260614-b97659` (Quartz/NoOp worker executor gotcha)
+- Blog: `blog/2026-06-17-mdp01-grade3-ind-assertion-trap.md`
+- Spec: `docs/specs/2026-06-16-grade3-ind-expedited-design.md` (promoted to project)
+- Protocol: PP-20260617-3167e3 (clinical-ind-reporting-grade-extension — three-location atomic update rule)
+- Garden: GE-20260616-848099 (CFR substring assertion trap), GE-20260616-ba2c72 (LedgerEntry.compliance() in unit tests), GE-20260616-0b20d0 (engine context vs inputSchema blackboard)
