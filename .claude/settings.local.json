@@ -80,7 +80,10 @@
       "Skill(publish-blog)",
       "Bash(date -v +14d +%Y-%m-%d)",
       "Bash(xargs -I{} basename {})",
-      "Bash(mvn compile *)"
+      "Bash(mvn compile *)",
+      "Bash(mvn dependency:tree -pl runtime --batch-mode -q)",
+      "Bash(mvn dependency:tree -pl runtime --batch-mode)",
+      "Bash(kill %1)"
     ]
   }
 }
