@@ -1,0 +1,9 @@
+branch: issue-10-showcase-clinicalagent
+project-sha: 4888aae448c0963464b80dfc110cc054154a68ad
+date: 2026-06-17
+issue: 10
+issue-repo: casehubio/clinical
+covers: 10
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
