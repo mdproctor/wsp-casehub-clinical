@@ -30,6 +30,7 @@
 | [2026-05-30-mdp01-a-domain-event-fires-once.md](2026-05-30-mdp01-a-domain-event-fires-once.md) | 2026-05-30 | AE safety officer notification — trigger choice, SPI shape, GCP/FDA ledger compliance |
 | [2026-05-30-mdp02-silence-is-not-an-audit-trail.md](2026-05-30-mdp02-silence-is-not-an-audit-trail.md) | 2026-05-30 | #45/#46 — observer fallback, actorId alignment, Hibernate flush timing |
 | [2026-05-31-mdp01-when-caught-exceptions-commit.md](2026-05-31-mdp01-when-caught-exceptions-commit.md) | 2026-05-31 | #48 — ledgerWritten flag, double-commit trap, AeEscalation + IrbDecision observer fallback |
+| [2026-06-17-mdp01-grade4-cdi-and-a-jta-surprise.md](2026-06-17-mdp01-grade4-cdi-and-a-jta-surprise.md) | 2026-06-17 | Grade 4 IND path, the CDI two-winner draw, and a tenant stamp that was missing from @BeforeEach |
 | [2026-06-10-mdp01-the-filter-that-wasnt-there.md](2026-06-10-mdp01-the-filter-that-wasnt-there.md) | 2026-06-10 | Why Hibernate @Filter doesn't apply to findById(), and the entity-helper pattern for per-request tenant isolation |
 | [2026-06-12-mdp01-the-event-that-fires-too-early.md](2026-06-12-mdp01-the-event-that-fires-too-early.md) | 2026-06-12 | Layer 8 ActionRiskClassifier — the engine event timing issue that blocks programmatic worker bindings |
 | [2026-06-13-mdp01-what-the-binding-schema-actually-is.md](2026-06-13-mdp01-what-the-binding-schema-actually-is.md) | 2026-06-13 | SUSAR oversight case hub, gate listener race condition, GDPR withdrawal, ComplianceSupplement |
