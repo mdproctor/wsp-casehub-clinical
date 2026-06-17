@@ -1,0 +1,9 @@
+branch: issue-82-grade4-ind-s-fixes
+project-sha: b13e02ef8a859c2cc04b0df98d2377d4c8fdb92e
+date: 2026-06-17
+issue: 82
+issue-repo: casehubio/clinical
+covers: 82,84,85
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
