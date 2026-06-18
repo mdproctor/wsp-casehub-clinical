@@ -2,7 +2,7 @@
 
 **Issue:** casehubio/clinical#10
 **Branch:** issue-10-showcase-clinicalagent
-**Date:** 2026-06-18 (rev 3)
+**Date:** 2026-06-18 (rev 4)
 
 ---
 
@@ -45,10 +45,12 @@ CRITERIA_MET, MARGINAL, EXCLUDED
 
 **`EligibilityScreeningCaseStatus` enum** (`api/model/`):
 ```
-NONE, REQUESTED, FAILED
+NONE, REQUESTED, COMPLETED, FAILED
 ```
-Same shape as `SusarOversightStatus`. Used as the idempotency guard on the engine case
-lifecycle, independent of the domain `enrollmentStatus`.
+Same shape as `SusarOversightStatus` / `AeEscalationStatus`. Used as the idempotency
+guard on the engine case lifecycle, independent of the domain `enrollmentStatus`.
+COMPLETED is set by the future IRB completion listener (out of scope here) when the
+engine case goal fires.
 
 **`EnrollmentStatus`** — no new values. The existing enum already contains:
 - `SCREENING` — used when IRB consultation is pending after marginal result
@@ -201,17 +203,21 @@ evaluator requires JSON-compatible types. Do not insert `CriterionResult` record
 **`ProtocolAmendmentStatus` enum** (`api/model/`):
 ```
 PROPOSED     — created, awaiting advisor
-SUPERVISED   — advisor running (idempotency guard, set in Phase 1)
+SUPERVISED   — terminal state: advisor recommended DSMB review (pending #86)
 APPROVED     — advisor returned PROCEED
 HALTED       — advisor returned HALT
 ```
 
+Note: SUPERVISED is a *terminal business state* for the DSMB referral path, not an
+idempotency guard. The Phase 1 idempotency guard is `AmendmentCaseStatus.REQUESTED`.
+
 **`AmendmentCaseStatus` enum** (`api/model/`):
 ```
-NONE, REQUESTED, FAILED
+NONE, REQUESTED, COMPLETED, FAILED
 ```
-Same shape as `EligibilityScreeningCaseStatus`. Separate from `ProtocolAmendmentStatus`
-to keep infrastructure lifecycle concerns off the business state.
+Same shape as `AeEscalationStatus` / `SusarOversightStatus`. Separate from
+`ProtocolAmendmentStatus` to keep infrastructure lifecycle concerns off the business state.
+COMPLETED is set by `ProtocolAmendmentListener` after successfully routing the recommendation.
 
 **`AmendmentRecommendation` enum** (`api/spi/`):
 ```
@@ -391,17 +397,21 @@ UUID amendmentId = UUID.fromString(amendmentIdObj.toString());
 ProtocolAmendment amendment = ProtocolAmendment.findById(amendmentId);
 if (amendment == null) return;
 
-// Idempotency guard: GoalReached fires multiple times per case (engine#393)
-if (amendment.status != ProtocolAmendmentStatus.SUPERVISED) return;
+// Idempotency guard: GoalReached fires multiple times per case (engine#393).
+// supervisorRecommendation is null until the listener first sets it; non-null on
+// any re-delivery regardless of branch taken (including REFER_TO_DSMB which keeps
+// status=SUPERVISED — a status-based guard would re-enter on re-delivery).
+if (amendment.supervisorRecommendation != null) return;
 
 String rec = (String) instance.getCaseContext().getPath("advisorRecommendation");
 amendment.supervisorRecommendation = rec;
 amendment.status = switch (rec) {
     case "PROCEED"       -> ProtocolAmendmentStatus.APPROVED;
     case "HALT"          -> ProtocolAmendmentStatus.HALTED;
-    case "REFER_TO_DSMB" -> ProtocolAmendmentStatus.SUPERVISED;  // stay supervised pending DSMB
+    case "REFER_TO_DSMB" -> ProtocolAmendmentStatus.SUPERVISED;
     default -> throw new IllegalStateException("Unknown recommendation: " + rec);
 };
+amendment.amendmentCaseStatus = AmendmentCaseStatus.COMPLETED;
 protocolAmendmentLedgerWriter.writeResolutionEntry(amendment);
 ```
 
@@ -515,13 +525,18 @@ Awaitility.await().atMost(5, SECONDS) until:
 Assert: amendment.supervisorRecommendation = "PROCEED"
 
 // Ledger: proposal + resolution entries written (no verify endpoint; direct repo query)
-Assert: ledgerRepo.findAllBySubjectId(amendmentId, "default").size() == 2
+Assert: ledgerRepo.findBySubjectId(amendmentId, "default")
+    .stream()
+    .filter(e -> e instanceof ProtocolAmendmentLedgerEntry)
+    .count() == 2
 ```
 
-Amendment ledger entries are in the qhorus datasource. The `LedgerEntryRepository` query
-filters by `subjectId = amendmentId`. Two entries expected: PROPOSED (from
-`ProtocolAmendmentService`) + resolution (from `ProtocolAmendmentListener`). A REST verify
-endpoint for amendments is not in scope here.
+Amendment ledger entries are in the qhorus datasource. `LedgerEntryRepository.findBySubjectId`
+is the actual API (confirmed from decompiled interface). The instanceof filter guards against
+spurious entries from background observers writing to the same subjectId — same fragility
+noted in the 2026-06-03 blog entry regarding `AdverseEventServiceTest`. Two typed entries
+expected: proposal (from `ProtocolAmendmentService`) + resolution (from
+`ProtocolAmendmentListener`). A REST verify endpoint for amendments is not in scope here.
 
 ---
 
@@ -578,12 +593,12 @@ FDA auditor verification (no server access required):
 | Class | Module | Notes |
 |---|---|---|
 | `EligibilityScreeningResult` | api/model | Enum: CRITERIA_MET, MARGINAL, EXCLUDED |
-| `EligibilityScreeningCaseStatus` | api/model | Enum: NONE, REQUESTED, FAILED |
+| `EligibilityScreeningCaseStatus` | api/model | Enum: NONE, REQUESTED, COMPLETED, FAILED |
 | `CriterionResult` | api/model | Record: id, met, marginal |
 | `EligibilityScreeningEvent` | api | CDI event record |
 | `ProtocolAmendmentProposedEvent` | api | CDI event record |
 | `ProtocolAmendmentStatus` | api/model | Enum: PROPOSED, SUPERVISED, APPROVED, HALTED |
-| `AmendmentCaseStatus` | api/model | Enum: NONE, REQUESTED, FAILED |
+| `AmendmentCaseStatus` | api/model | Enum: NONE, REQUESTED, COMPLETED, FAILED |
 | `AmendmentRecommendation` | api/spi | Enum: PROCEED, REFER_TO_DSMB, HALT |
 | `ProtocolAmendmentContext` | api/spi | Record: input to advisor |
 | `ProtocolAmendmentAdvisor` | api/spi | SPI interface |
