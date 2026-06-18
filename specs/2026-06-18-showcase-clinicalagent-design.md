@@ -2,7 +2,7 @@
 
 **Issue:** casehubio/clinical#10
 **Branch:** issue-10-showcase-clinicalagent
-**Date:** 2026-06-18 (rev 4)
+**Date:** 2026-06-18 (rev 5)
 
 ---
 
@@ -168,9 +168,11 @@ context is applied (pattern from `susar-oversight.yaml`).
 `SusarOversightCaseService`):
 
 - **Phase 1** `@Transactional prepareAndMark(event)`: load `PatientEnrollment` by
-  `enrollmentId`; idempotency guard — if `enrollment.eligibilityScreeningCaseStatus != NONE`
-  return null; set `enrollment.eligibilityScreeningCaseStatus = REQUESTED`; build and
-  return initial context map
+  `PatientEnrollment.findById(enrollmentId)` (base Panache — not `findByIdForTenant`;
+  `@ObservesAsync` runs off-request with no `@RequestScoped CurrentPrincipal`);
+  idempotency guard — if `enrollment.eligibilityScreeningCaseStatus != NONE` return null;
+  set `enrollment.eligibilityScreeningCaseStatus = REQUESTED`; build and return initial
+  context map
 - **Phase 2**: `eligibilityScreeningCaseHub.startCase(ctx).toCompletableFuture().join()`
   outside any TX boundary
 - **Phase 3** `@Transactional persistCaseId(enrollmentId, caseId)`: set
@@ -342,15 +344,61 @@ Advisory-only case: the advisor's recommendation is the decision. No downstream 
 Positive guard (`.amendmentId != null`) prevents empty-context firing.
 
 **`ProtocolAmendmentCaseHub`** extends `YamlCaseHub("clinical/protocol-amendment.yaml")`.
-Overrides `getDefinition()` to register Java-function worker for `protocol-amendment-advisor`.
-The function calls `ProtocolAmendmentAdvisor.advise(context)` and returns
-`{ "advisorRecommendation": recommendation.name() }`.
+Overrides `getDefinition()` to register a Java-function worker for `protocol-amendment-advisor`.
+Reference implementation: `ClinicalSusarOversightCaseHub` (same pattern, same builder shape).
+
+```java
+@ApplicationScoped
+public class ProtocolAmendmentCaseHub extends YamlCaseHub {
+
+    @Inject ProtocolAmendmentAdvisor advisor;
+    private volatile CaseDefinition augmentedDefinition;  // double-checked locking for thread safety
+
+    public ProtocolAmendmentCaseHub() { super("clinical/protocol-amendment.yaml"); }
+
+    @Override
+    public CaseDefinition getDefinition() {
+        if (augmentedDefinition == null) {
+            synchronized (this) {
+                if (augmentedDefinition == null) {
+                    CaseDefinition def = super.getDefinition();
+                    def.getWorkers().add(Worker.builder()
+                        .name("protocol-amendment-advisor-worker")
+                        .capabilities(List.of(Capability.builder()
+                            .name("protocol-amendment-advisor")
+                            .inputSchema("{ amendmentId: .amendmentId, trialId: .trialId, proposedChange: .proposedChange }")
+                            .outputSchema(".")   // merges { advisorRecommendation } back into case context
+                            .build()))
+                        .function(ctx -> {
+                            ProtocolAmendmentContext pac = new ProtocolAmendmentContext(
+                                UUID.fromString((String) ctx.get("amendmentId")),
+                                UUID.fromString((String) ctx.get("trialId")),
+                                (String) ctx.get("proposedChange"),
+                                Map.of()  // blackboard snapshot added when #86 lands
+                            );
+                            return Map.of("advisorRecommendation", advisor.advise(pac).name());
+                        })
+                        .build());
+                    augmentedDefinition = def;
+                }
+            }
+        }
+        return augmentedDefinition;
+    }
+}
+```
+
+`.outputSchema(".")` is required — it merges the worker's return map into the case context.
+Without it, `.advisorRecommendation` is never set and the goal `.advisorRecommendation != null`
+never fires, hanging the case permanently.
 
 **`ProtocolAmendmentCaseService`** — `@ApplicationScoped`, observes
 `@ObservesAsync ProtocolAmendmentProposedEvent`. Four-phase pattern:
 
 - **Phase 1** `@Transactional prepareAndMark(event)`: load `ProtocolAmendment` by
-  `amendmentId`; idempotency guard — if `amendment.amendmentCaseStatus != NONE` return null;
+  `ProtocolAmendment.findById(amendmentId)` (base Panache — not tenant-scoped; same
+  reasoning as `AeEscalationCaseService.prepareAndMarkRequested()` line 60);
+  idempotency guard — if `amendment.amendmentCaseStatus != NONE` return null;
   set `amendment.amendmentCaseStatus = REQUESTED`; build and return initial context map
 - **Phase 2**: `protocolAmendmentCaseHub.startCase(ctx).toCompletableFuture().join()`
   outside any TX boundary
@@ -428,7 +476,10 @@ or neither does. The double-write scenario cannot occur.
 
 ### `ProtocolAmendmentLedgerWriter`
 
-`@ApplicationScoped`, per ADR-0002. Two methods:
+`@ApplicationScoped`, per ADR-0002. Owns `sequenceNumber` computation via
+`findLatestBySubjectId(amendment.id, tenancyId)` — both `writeProposalEntry` and
+`writeResolutionEntry` write to the same subject chain; sequence ownership must be
+centralised here, not spread across callers. Two methods:
 - `writeProposalEntry(ProtocolAmendment)` — called by `ProtocolAmendmentService`
 - `writeResolutionEntry(ProtocolAmendment)` — called by `ProtocolAmendmentListener`
 
@@ -457,9 +508,8 @@ Single `@QuarkusTest` method `three_site_oncology_showcase()`. Class Javadoc ref
 
 **Injected test helpers:**
 ```java
-@Inject WorkItemQueries workItemQueries;        // scanAll() wrapped in TX
-@Inject LedgerEntryRepository ledgerRepo;       // for amendment ledger count assertion
-@Inject CaseInstanceRepository caseInstanceRepository;  // not needed directly
+@Inject WorkItemQueries workItemQueries;   // scanAll() wrapped in TX
+@Inject LedgerEntryRepository ledgerRepo;  // for amendment ledger count assertion
 ```
 
 **Setup:** register trial (unique `protocolId`), add 3 sites (A, B, C), activate trial.
@@ -540,7 +590,69 @@ expected: proposal (from `ProtocolAmendmentService`) + resolution (from
 
 ---
 
-## 4. `ClinicalLayerComplianceTest` (rename)
+## 4. Test Plan
+
+Per CLAUDE.md: unit tests for pure logic, integration tests for Panache/CDI/REST.
+
+### Unit tests (no Quarkus, Mockito for dependencies)
+
+**`EligibilityScreeningServiceTest`**
+- `marginal_criterion_takes_priority_over_excluded` — one `marginal=true` AND one `met=false`
+  non-marginal → `MARGINAL` (not `EXCLUDED`; documents the precedence rule)
+- `all_non_marginal_failed_criterion_results_in_EXCLUDED`
+- `all_criteria_met_results_in_CRITERIA_MET`
+
+**`EligibilityScreeningCaseServiceTest`**
+- `phase1_idempotency_guard_skips_when_status_is_REQUESTED`
+- `phase1_sets_REQUESTED_on_NONE_status`
+- `phase4_sets_FAILED_on_startCase_exception`
+- `context_serializes_criterion_results_as_maps_not_records` — asserts each entry in
+  `criteriaResults` is `Map<String, Object>`, not a `CriterionResult` instance
+
+**`ProtocolAmendmentCaseServiceTest`**
+- `phase1_idempotency_guard_skips_when_not_NONE`
+- `phase1_sets_REQUESTED`
+- `phase4_sets_FAILED_on_startCase_exception`
+- `initial_context_contains_amendmentId_as_string` — listener discrimination depends on it
+
+**`ProtocolAmendmentListenerTest`** (uses `@InjectMock CaseInstanceRepository`)
+- `proceed_sets_APPROVED_and_COMPLETED_and_non_null_recommendation`
+- `halt_sets_HALTED_and_COMPLETED`
+- `refer_to_dsmb_sets_SUPERVISED_and_COMPLETED`
+- `redelivery_skipped_when_supervisorRecommendation_already_set`
+- `non_amendment_case_skipped_when_amendmentId_absent_from_context`
+- `writes_resolution_ledger_entry_exactly_once`
+
+**`ProtocolAmendmentLedgerWriterTest`** (Mockito-mocked `LedgerEntryRepository`)
+- `writeProposalEntry_includes_proposedChange`
+- `writeResolutionEntry_includes_supervisorRecommendation`
+- `sequenceNumber_increments_between_proposal_and_resolution_entries`
+
+**`DefaultProtocolAmendmentAdvisorTest`**
+- `always_returns_PROCEED`
+
+### Integration tests (`@QuarkusTest` with H2)
+
+**`EligibilityScreeningIntegrationTest`** — focuses on the service + ledger path isolated
+from the engine case:
+- `screen_MARGINAL_sets_SCREENING_status_and_writes_ledger_entry`
+- `screen_CRITERIA_MET_sets_ELIGIBLE_status`
+- `screen_EXCLUDED_sets_INELIGIBLE_status`
+
+**`ProtocolAmendmentIntegrationTest`** — exercises the full REST + observer path:
+- `propose_creates_amendment_PROPOSED_and_writes_proposal_ledger_entry`
+- `propose_then_await_APPROVED_writes_resolution_ledger_entry`
+  (Awaitility polling GET /amendments/{id})
+
+### End-to-end
+
+**`ThreeSiteShowcaseTest`** — the narrative showcase described in §3. Tests only the
+PROCEED happy path. HALT and REFER_TO_DSMB branches are covered in
+`ProtocolAmendmentListenerTest` via `@InjectMock`.
+
+---
+
+## 5. `ClinicalLayerComplianceTest` (rename)  
 
 `ShowcaseScenarioTest` renamed to `ClinicalLayerComplianceTest` via IntelliJ refactor.
 All 4 existing test methods kept unchanged. Class Javadoc updated.
