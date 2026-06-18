@@ -2,7 +2,7 @@
 
 **Issue:** casehubio/clinical#10
 **Branch:** issue-10-showcase-clinicalagent
-**Date:** 2026-06-18 (rev 6)
+**Date:** 2026-06-18 (rev 7)
 
 ---
 
@@ -617,6 +617,11 @@ Per CLAUDE.md: unit tests for pure logic, integration tests for Panache/CDI/REST
 - `phase4_sets_FAILED_on_startCase_exception`
 - `initial_context_contains_amendmentId_as_string` — listener discrimination depends on it
 
+
+**`EligibilityScreeningLedgerWriterTest`** (Mockito-mocked `LedgerEntryRepository`)
+- `writeScreeningEntry_sets_criteriaCount_to_total_list_size` — two criteria in, `criteriaCount = 2`
+- `writeScreeningEntry_sets_marginalCount_to_count_of_marginal_true` — one `marginal=true`, `marginalCount = 1`
+- `writeScreeningEntry_uses_correct_screeningResult` — MARGINAL result written to entry
 
 **`ProtocolAmendmentLedgerWriterTest`** (Mockito-mocked `LedgerEntryRepository`)
 - `writeProposalEntry_includes_proposedChange`
