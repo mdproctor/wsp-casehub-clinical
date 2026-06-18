@@ -2,7 +2,7 @@
 
 **Issue:** casehubio/clinical#10
 **Branch:** issue-10-showcase-clinicalagent
-**Date:** 2026-06-18 (rev 2)
+**Date:** 2026-06-18 (rev 3)
 
 ---
 
@@ -18,8 +18,19 @@ Three deliverables:
 2. **`ThreeSiteShowcaseTest`** — single narrative `@QuarkusTest` orchestrating all 3 sites
 3. **`docs/comparison/clinicalagent.md`** — GCP/FDA gap table with class/layer references
 
-Also: rename `ShowcaseScenarioTest` → `ClinicalLayerComplianceTest` (layer-by-layer
-compliance tests, not showcase).
+Also: rename `ShowcaseScenarioTest` → `ClinicalLayerComplianceTest`.
+
+---
+
+## Layer 9 — Showcase
+
+Layers 1–8 each integrate a new CaseHub foundation module. Layer 9 is different: it adds
+new domain application features (eligibility screening, protocol amendment) that exercise
+existing foundation modules (Layers 4+5) without a new foundation dependency. The value
+demonstrated is not a new module integration but the structural completeness of the
+compliance story.
+
+ARC42STORIES.MD will be updated to document Layer 9 at implementation close.
 
 ---
 
@@ -32,20 +43,24 @@ compliance tests, not showcase).
 CRITERIA_MET, MARGINAL, EXCLUDED
 ```
 
-**`EnrollmentStatus`** — no new values needed. The existing FHIR-sourced enum already has:
-- `SCREENING` — used when patient is in IRB consultation after marginal result
-- `ELIGIBLE` — used when all criteria are met
-- `INELIGIBLE` — used when screening excludes the patient
+**`EligibilityScreeningCaseStatus` enum** (`api/model/`):
+```
+NONE, REQUESTED, FAILED
+```
+Same shape as `SusarOversightStatus`. Used as the idempotency guard on the engine case
+lifecycle, independent of the domain `enrollmentStatus`.
 
-`EligibilityScreeningService` maps results to existing statuses:
-`MARGINAL → SCREENING`, `CRITERIA_MET → ELIGIBLE`, `EXCLUDED → INELIGIBLE`.
+**`EnrollmentStatus`** — no new values. The existing enum already contains:
+- `SCREENING` — used when IRB consultation is pending after marginal result
+- `ELIGIBLE` — used when all criteria are met
+- `INELIGIBLE` — used when patient is excluded
 
 **`PatientEnrollment` new fields** (default datasource, V122):
 - `screening_result VARCHAR(50)` — nullable until screened
 - `screening_completed_at TIMESTAMP WITH TIME ZONE` — nullable
-- `eligibility_engine_case_id UUID` — nullable; set in Phase 3 when MARGINAL engine case
-  starts; used by `EligibilityScreeningListener` to route `GoalReached` events back to
-  the correct enrollment
+- `eligibility_engine_case_id UUID` — nullable; set in Phase 3
+- `eligibility_screening_case_status VARCHAR(50) NOT NULL DEFAULT 'NONE'` — engine
+  case lifecycle status; idempotency guard for `EligibilityScreeningCaseService`
 
 ### CDI event
 
@@ -59,7 +74,7 @@ public record EligibilityScreeningEvent(
 ) {}
 ```
 
-`CriterionResult` is a record in `api/model/`: `String id`, `boolean met`, `boolean marginal`.
+**`CriterionResult` record** (`api/model/`): `String id`, `boolean met`, `boolean marginal`.
 
 ### REST endpoint
 
@@ -80,31 +95,32 @@ Returns 200 with updated enrollment (`screeningResult`, `enrollmentStatus`).
 
 ### `EligibilityScreeningService`
 
-`@ApplicationScoped`. Called synchronously from `PatientResource` — result is needed for
-the REST response.
+`@ApplicationScoped`. Called synchronously from `PatientResource`.
 
-Result determination logic:
+Result logic:
 - Any `marginal=true` → `MARGINAL`
 - Any `met=false` (non-marginal) → `EXCLUDED`
 - All `met=true` → `CRITERIA_MET`
 
-One `@Transactional` call covering:
-1. Write `EligibilityScreeningLedgerEntry` via `EligibilityScreeningLedgerWriter.writeScreeningEntry()`
+One `@Transactional` call:
+1. Call `eligibilityScreeningLedgerWriter.writeScreeningEntry()` (qhorus datasource)
 2. Update `enrollment.screeningResult`, `screeningCompletedAt`, `enrollmentStatus`
-3. If `MARGINAL` → `Event<EligibilityScreeningEvent>.fireAsync(event)` (CDI async delivery
-   occurs after TX commit; `EligibilityScreeningCaseService` observes it)
+3. If `MARGINAL` → fire `EligibilityScreeningEvent` via `Event.fireAsync()` (CDI delivers
+   after TX commit; `EligibilityScreeningCaseService` observes it)
+
+XA required: default datasource (entity) + qhorus datasource (ledger) in same TX.
 
 ### `EligibilityScreeningLedgerWriter`
 
 `@ApplicationScoped`, per ADR-0002. Owns `sequenceNumber` computation via
-`findLatestBySubjectId`. Single method now; `writeResolutionEntry()` to be added when
-the IRB completion listener lands (out of scope here).
+`findLatestBySubjectId`. Single method now (`writeScreeningEntry()`); `writeResolutionEntry()`
+added when IRB completion listener lands (out of scope here).
 
 **`EligibilityScreeningLedgerEntry`** (qhorus datasource, V2024):
 Fields: `enrollmentId UUID`, `screeningResult VARCHAR(50)`, `criteriaCount INT`,
 `marginalCount INT`.
 
-`domainContentBytes()` → `String.join("|", enrollmentId, screeningResult,
+`domainContentBytes()`: `String.join("|", enrollmentId, screeningResult,
 String.valueOf(criteriaCount), String.valueOf(marginalCount)).getBytes(UTF_8)`.
 
 ### Engine case
@@ -139,36 +155,42 @@ spec:
         outputMapping: "{ irbConsultation: . }"
 ```
 
-The positive guard (`.enrollmentId != null`) prevents the binding from firing on the empty
-context the engine presents before initial context is applied (established pattern from
-`susar-oversight.yaml`).
+Positive guard (`.enrollmentId != null`) prevents firing on empty context before initial
+context is applied (pattern from `susar-oversight.yaml`).
 
 **`EligibilityScreeningCaseHub`** extends `YamlCaseHub("clinical/eligibility-screening.yaml")`.
-`@ApplicationScoped`. No `getDefinition()` override — YAML only.
+`@ApplicationScoped`. No `getDefinition()` override.
 
 **`EligibilityScreeningCaseService`** — `@ApplicationScoped`, observes
-`@ObservesAsync EligibilityScreeningEvent`. Three-phase pattern (reference:
+`@ObservesAsync EligibilityScreeningEvent`. Four-phase pattern (reference:
 `SusarOversightCaseService`):
 
 - **Phase 1** `@Transactional prepareAndMark(event)`: load `PatientEnrollment` by
-  `enrollmentId`, idempotency guard — if `enrollmentStatus != SCREENING` return null
-  (already processed), build and return initial context map
+  `enrollmentId`; idempotency guard — if `enrollment.eligibilityScreeningCaseStatus != NONE`
+  return null; set `enrollment.eligibilityScreeningCaseStatus = REQUESTED`; build and
+  return initial context map
 - **Phase 2**: `eligibilityScreeningCaseHub.startCase(ctx).toCompletableFuture().join()`
   outside any TX boundary
 - **Phase 3** `@Transactional persistCaseId(enrollmentId, caseId)`: set
   `enrollment.eligibilityEngineCaseId = caseId`
+- **Phase 4** `@Transactional markFailed(enrollmentId)` — called in catch block wrapping
+  Phases 2–3: sets `enrollment.eligibilityScreeningCaseStatus = FAILED`
 
-Initial case context:
+Initial case context (all values serialized as strings or primitives — no domain objects):
 ```json
-{ "enrollmentId": "...", "tenantId": "...", "screeningResult": "MARGINAL",
-  "criteriaResults": [...] }
+{
+  "enrollmentId": "<uuid-string>",
+  "tenantId": "<string>",
+  "screeningResult": "MARGINAL",
+  "criteriaResults": [
+    { "id": "criterion-7", "met": false, "marginal": true }
+  ]
+}
 ```
 
-### Compliance gap closed
-
-Eligibility agent decisions are tamper-evident (`EligibilityScreeningLedgerEntry`) and
-adaptive (marginal criteria trigger a formal IRB gate rather than an autonomous agent
-rejection). ClinicalAgent has no equivalent.
+Each `CriterionResult` is serialized to `Map.of("id", r.id(), "met", r.met(), "marginal",
+r.marginal())` before insertion. The engine context is `Map<String, Object>`; the JQ
+evaluator requires JSON-compatible types. Do not insert `CriterionResult` records directly.
 
 ---
 
@@ -182,8 +204,14 @@ PROPOSED     — created, awaiting advisor
 SUPERVISED   — advisor running (idempotency guard, set in Phase 1)
 APPROVED     — advisor returned PROCEED
 HALTED       — advisor returned HALT
-REJECTED     — reserved for human override (reachable after #86)
 ```
+
+**`AmendmentCaseStatus` enum** (`api/model/`):
+```
+NONE, REQUESTED, FAILED
+```
+Same shape as `EligibilityScreeningCaseStatus`. Separate from `ProtocolAmendmentStatus`
+to keep infrastructure lifecycle concerns off the business state.
 
 **`AmendmentRecommendation` enum** (`api/spi/`):
 ```
@@ -198,14 +226,15 @@ CREATE TABLE protocol_amendment (
   trial_id UUID NOT NULL,
   proposed_change TEXT NOT NULL,
   status VARCHAR(50) NOT NULL DEFAULT 'PROPOSED',
+  amendment_case_status VARCHAR(50) NOT NULL DEFAULT 'NONE',
   supervisor_recommendation VARCHAR(50),
   engine_case_id UUID,
   proposed_at TIMESTAMP WITH TIME ZONE NOT NULL
 );
 ```
 
-Static finder: `ProtocolAmendment.findByEngineCaseId(UUID caseId)` — used by
-`ProtocolAmendmentListener` to discriminate `GoalReached` events.
+No `findByEngineCaseId` static finder needed — `ProtocolAmendmentListener` discriminates
+via the case context (see §2.6 below).
 
 ### CDI event
 
@@ -219,22 +248,33 @@ public record ProtocolAmendmentProposedEvent(
 ) {}
 ```
 
-### REST endpoint
+### REST endpoints
 
-`POST /trials/{trialId}/amendments` → new `ProtocolAmendmentResource`.
+`ProtocolAmendmentResource` exposes two endpoints:
 
-Request: `{ "proposedChange": "Dose escalation amendment v2" }`
-
+**`POST /trials/{trialId}/amendments`** — delegates to `ProtocolAmendmentService.propose()`.
+Request: `{ "proposedChange": "Dose escalation amendment v2" }`.
 Returns 201 with created amendment (`status = PROPOSED`).
 
-Resource delegates to `ProtocolAmendmentService.propose()`.
+**`GET /trials/{trialId}/amendments/{amendmentId}`** — ownership check: load amendment,
+verify `amendment.trialId == trialId`. Returns:
+```json
+{
+  "id": "...",
+  "trialId": "...",
+  "proposedChange": "...",
+  "status": "APPROVED",
+  "supervisorRecommendation": "PROCEED",
+  "proposedAt": "..."
+}
+```
 
 ### `ProtocolAmendmentService`
 
-`@ApplicationScoped`. Owns persist + ledger write + CDI event in one `@Transactional` call:
-1. Create and persist `ProtocolAmendment` (`status = PROPOSED`)
-2. Write `ProtocolAmendmentLedgerEntry` via `ProtocolAmendmentLedgerWriter.writeProposalEntry()`
-3. `Event<ProtocolAmendmentProposedEvent>.fireAsync(event)`
+`@ApplicationScoped`. `@Transactional propose()`:
+1. Create and persist `ProtocolAmendment` (`status = PROPOSED`, `amendmentCaseStatus = NONE`)
+2. Call `protocolAmendmentLedgerWriter.writeProposalEntry(amendment)`
+3. Fire `ProtocolAmendmentProposedEvent` via `Event.fireAsync()`
 
 XA required: default datasource (entity) + qhorus datasource (ledger) in same TX.
 
@@ -258,9 +298,8 @@ public interface ProtocolAmendmentAdvisor {
 ```
 
 **`DefaultProtocolAmendmentAdvisor`** (`runtime/service/`, `@DefaultBean @ApplicationScoped`):
-Always returns `AmendmentRecommendation.PROCEED`. Javadoc:
-"Stub — replace with LlmPlanningStrategy integration when casehubio/engine#101 lands
-(tracked: casehubio/clinical#86)."
+Always returns `AmendmentRecommendation.PROCEED`. Javadoc: "Stub — replace with
+LlmPlanningStrategy integration when casehubio/engine#101 lands (tracked: clinical#86)."
 
 ### Engine case
 
@@ -293,62 +332,106 @@ spec:
       capability: protocol-amendment-advisor
 ```
 
-Design note: the case is advisory-only. The advisor's recommendation IS the decision.
-No downstream humanTask lives in this case definition — filing and ratification are
-downstream operational steps outside this case scope, to be added when #86 lands. The
-goal fires when `advisorRecommendation` is set by the capability worker; the listener
-reads it and routes.
-
-Positive guard (`.amendmentId != null`) prevents the binding from firing on empty
-context before initial context is applied.
+Advisory-only case: the advisor's recommendation is the decision. No downstream humanTask.
+Positive guard (`.amendmentId != null`) prevents empty-context firing.
 
 **`ProtocolAmendmentCaseHub`** extends `YamlCaseHub("clinical/protocol-amendment.yaml")`.
-Overrides `getDefinition()` to register Java-function worker for `protocol-amendment-advisor`
-capability. The function calls `ProtocolAmendmentAdvisor.advise(context)` and returns
+Overrides `getDefinition()` to register Java-function worker for `protocol-amendment-advisor`.
+The function calls `ProtocolAmendmentAdvisor.advise(context)` and returns
 `{ "advisorRecommendation": recommendation.name() }`.
 
 **`ProtocolAmendmentCaseService`** — `@ApplicationScoped`, observes
-`@ObservesAsync ProtocolAmendmentProposedEvent`. Three-phase pattern:
+`@ObservesAsync ProtocolAmendmentProposedEvent`. Four-phase pattern:
 
 - **Phase 1** `@Transactional prepareAndMark(event)`: load `ProtocolAmendment` by
-  `amendmentId`, idempotency guard — if `status != PROPOSED` return null (already processed),
-  set `amendment.status = SUPERVISED` as guard, build and return initial context map
+  `amendmentId`; idempotency guard — if `amendment.amendmentCaseStatus != NONE` return null;
+  set `amendment.amendmentCaseStatus = REQUESTED`; build and return initial context map
 - **Phase 2**: `protocolAmendmentCaseHub.startCase(ctx).toCompletableFuture().join()`
   outside any TX boundary
 - **Phase 3** `@Transactional persistCaseId(amendmentId, caseId)`: set
   `amendment.engineCaseId = caseId`
+- **Phase 4** `@Transactional markFailed(amendmentId)` — called in catch block wrapping
+  Phases 2–3: sets `amendment.amendmentCaseStatus = FAILED`
 
-**`ProtocolAmendmentListener`** — `@ApplicationScoped @ObservesAsync CaseLifecycleEvent`.
-Accepts both `"GoalReached"` and `"CaseCompleted"` event types with idempotency guard
-(established pattern from `AeEscalationListener`, per engine#393 note in CLAUDE.md).
+Initial case context (all strings/primitives — no domain objects):
+```json
+{
+  "amendmentId": "<uuid-string>",
+  "trialId": "<uuid-string>",
+  "proposedChange": "<string>",
+  "tenantId": "<string>"
+}
+```
 
-Discrimination: `ProtocolAmendment.findByEngineCaseId(event.caseId())` — returns null for
-non-amendment cases, silently skips. For amendment cases:
+`amendmentId` must be in the initial context — `ProtocolAmendmentListener` depends on it
+for discrimination.
+
+### `ProtocolAmendmentListener`
+
+`@ApplicationScoped`. `@Transactional`. Observes `@ObservesAsync CaseLifecycleEvent`.
+
+Accepts `"GoalReached"` and `"CaseCompleted"` event types (engine#393: `GoalReached` fires
+first and reliably; accept both with idempotency guard).
+
+Context access follows the `AeEscalationListener` pattern exactly:
 
 ```java
-amendment.supervisorRecommendation = (String) ctx.get("advisorRecommendation");
-amendment.status = switch (amendment.supervisorRecommendation) {
+if (!"GoalReached".equals(event.eventType()) && !"CaseCompleted".equals(event.eventType())) return;
+
+var instance = caseInstanceRepository
+    .findByUuid(event.caseId(), event.tenancyId())
+    .await().atMost(Duration.ofSeconds(5));
+if (instance == null) return;
+
+// Discriminate: not a protocol amendment case if amendmentId absent
+Object amendmentIdObj = instance.getCaseContext().getPath("amendmentId");
+if (amendmentIdObj == null) return;
+
+UUID amendmentId = UUID.fromString(amendmentIdObj.toString());
+ProtocolAmendment amendment = ProtocolAmendment.findById(amendmentId);
+if (amendment == null) return;
+
+// Idempotency guard: GoalReached fires multiple times per case (engine#393)
+if (amendment.status != ProtocolAmendmentStatus.SUPERVISED) return;
+
+String rec = (String) instance.getCaseContext().getPath("advisorRecommendation");
+amendment.supervisorRecommendation = rec;
+amendment.status = switch (rec) {
     case "PROCEED"       -> ProtocolAmendmentStatus.APPROVED;
     case "HALT"          -> ProtocolAmendmentStatus.HALTED;
-    case "REFER_TO_DSMB" -> ProtocolAmendmentStatus.SUPERVISED;
-    default -> throw new IllegalStateException(
-        "Unknown recommendation: " + amendment.supervisorRecommendation);
+    case "REFER_TO_DSMB" -> ProtocolAmendmentStatus.SUPERVISED;  // stay supervised pending DSMB
+    default -> throw new IllegalStateException("Unknown recommendation: " + rec);
 };
 protocolAmendmentLedgerWriter.writeResolutionEntry(amendment);
 ```
 
+**`@Transactional` and XA:** the listener updates `amendment.status` (default datasource)
+and calls `writeResolutionEntry()` (qhorus datasource) in the same method. XA is required
+on both datasources.
+
+**Observer fallback (PP-20260530-49856c):** explicitly not applicable here. The protocol
+addresses the pattern where a `REQUIRES_NEW` sub-transaction commits a guard before the
+ledger write, creating a potential FDA gap if a downstream `fireAsync()` then throws.
+`ProtocolAmendmentListener` has no `REQUIRES_NEW` split and no `fireAsync()` after the
+ledger write. Status update and ledger write are in the same XA transaction — both commit
+or neither does. The double-write scenario cannot occur.
+
 ### `ProtocolAmendmentLedgerWriter`
 
 `@ApplicationScoped`, per ADR-0002. Two methods:
-- `writeProposalEntry(ProtocolAmendment)` — called by `ProtocolAmendmentService.propose()`
+- `writeProposalEntry(ProtocolAmendment)` — called by `ProtocolAmendmentService`
 - `writeResolutionEntry(ProtocolAmendment)` — called by `ProtocolAmendmentListener`
 
 **`ProtocolAmendmentLedgerEntry`** (qhorus datasource, V2025):
-Fields: `amendmentId UUID`, `trialId UUID`, `status VARCHAR(50)`,
+Fields: `amendmentId UUID`, `trialId UUID`, `proposedChange TEXT`, `status VARCHAR(50)`,
 `supervisorRecommendation VARCHAR(50)` (nullable).
 
-`domainContentBytes()` → `String.join("|", amendmentId, trialId, status,
-Objects.toString(supervisorRecommendation, "")).getBytes(UTF_8)`.
+`domainContentBytes()`: `String.join("|", amendmentId, trialId, status,
+proposedChange, Objects.toString(supervisorRecommendation, "")).getBytes(UTF_8)`.
+
+`proposedChange` is included because the FDA audit trail must prove not just that a
+proposal event occurred but what was proposed. Same reasoning as `AdverseEventLedgerEntry`
+including `grade`.
 
 ### Tracking issue
 
@@ -364,14 +447,12 @@ Single `@QuarkusTest` method `three_site_oncology_showcase()`. Class Javadoc ref
 
 **Injected test helpers:**
 ```java
-@Inject WorkItemQueries workItemQueries;       // test-scope: scanAll() wrapped in TX
-@Inject WorkItemService workItemService;
-@Inject WorkItemLifecycleAdapter lifecycleAdapter;
-@Inject ProtocolAmendmentCaseService amendmentCaseService; // for direct invocation if needed
+@Inject WorkItemQueries workItemQueries;        // scanAll() wrapped in TX
+@Inject LedgerEntryRepository ledgerRepo;       // for amendment ledger count assertion
+@Inject CaseInstanceRepository caseInstanceRepository;  // not needed directly
 ```
 
-**Setup:** register trial (unique protocolId), add 3 sites (A, B, C), activate trial →
-starts trial-level engine case.
+**Setup:** register trial (unique `protocolId`), add 3 sites (A, B, C), activate trial.
 
 ---
 
@@ -379,19 +460,24 @@ starts trial-level engine case.
 ```
 POST /trials/{t}/sites/{siteA}/patients          → enroll A-001
 POST /trials/{t}/sites/{siteA}/patients/{e}/screen
-    body: criteria 7 marginal, criteria 11 marginal
-Assert: 200; enrollmentStatus = "SCREENING"; screeningResult = "MARGINAL"
+    body: criterion-7 marginal, criterion-11 marginal
+Assert HTTP 200: enrollmentStatus = "SCREENING", screeningResult = "MARGINAL"
+
 Awaitility.await().atMost(5, SECONDS) until:
     workItemQueries.scanAll()
         .stream()
         .anyMatch(wi -> wi.getCandidateGroups().contains("irb-committee"))
-Assert: matching WorkItem has expiresAt ≤ Instant.now().plus(73, HOURS)
-Assert: EligibilityScreeningLedgerEntry written (subjectId = enrollmentId)
+
+Assert: matching WorkItem.expiresAt ≤ Instant.now().plus(73, HOURS)
+
+// Ledger assertion via patient audit chain (same mechanism as Site B)
+Assert: GET /trials/{t}/sites/{siteA}/patients/{e}/ledger/verify
+    → { "valid": true, "merkleRoot": <non-null> }
 ```
 
-WorkItem lookup uses the established `WorkItemQueries.scanAll()` helper (injected
-test-scope bean wrapping `WorkItemStore.scanAll()` in a transaction — same pattern as
-`IrbGateLifecycleTest`).
+WorkItem lookup uses `WorkItemQueries.scanAll()` (established pattern: `IrbGateLifecycleTest`).
+Patient ledger verify covers the `EligibilityScreeningLedgerEntry` since its
+`subjectId = enrollmentId`.
 
 ---
 
@@ -400,17 +486,19 @@ test-scope bean wrapping `WorkItemStore.scanAll()` in a transaction — same pat
 POST /trials/{t}/sites/{siteB}/patients          → enroll B-001
 POST /trials/{t}/sites/{siteB}/patients/{e}/adverse-events
     body: { grade: "GRADE_3", occurredAt: now-2h, unexpected: true }
-Assert: 201; slaDeadline within 24h; workItemId = null (engine-managed)
+Assert HTTP 201: slaDeadline within 24h; workItemId = null (engine-managed)
+
 Awaitility.await().atMost(5, SECONDS) until:
     GET /trials/{t}/sites/{siteB}/patients/{e}/adverse-events/{ae}
     .regulatorySubmissionStatus == "PENDING"
-Assert: AdverseEventLedgerEntry written (subjectId = enrollmentId)
+
+// FDA independent verification — Merkle proof for complete patient chain
 Assert: GET /trials/{t}/sites/{siteB}/patients/{e}/ledger/verify
     → { "valid": true, "merkleRoot": <non-null> }
 ```
 
 `regulatorySubmissionStatus = PENDING` is set by `RegulatorySubmissionCaseService`
-(`@ObservesAsync`) so Awaitility is required before asserting it.
+(`@ObservesAsync`) — Awaitility is required.
 
 ---
 
@@ -418,38 +506,39 @@ Assert: GET /trials/{t}/sites/{siteB}/patients/{e}/ledger/verify
 ```
 POST /trials/{t}/amendments
     body: { proposedChange: "Dose escalation amendment v2" }
-Assert: 201; status = "PROPOSED"
+Assert HTTP 201: status = "PROPOSED"
+
 Awaitility.await().atMost(5, SECONDS) until:
     GET /trials/{t}/amendments/{id}
     .status == "APPROVED"
+
 Assert: amendment.supervisorRecommendation = "PROCEED"
-Assert: ProtocolAmendmentLedgerEntry written (subjectId = amendmentId, two entries:
-    PROPOSED + resolution)
+
+// Ledger: proposal + resolution entries written (no verify endpoint; direct repo query)
+Assert: ledgerRepo.findAllBySubjectId(amendmentId, "default").size() == 2
 ```
 
-Merkle proof assertion on Site B's AE ledger chain demonstrates the FDA independent
-verification claim ("FDA can verify without server access").
+Amendment ledger entries are in the qhorus datasource. The `LedgerEntryRepository` query
+filters by `subjectId = amendmentId`. Two entries expected: PROPOSED (from
+`ProtocolAmendmentService`) + resolution (from `ProtocolAmendmentListener`). A REST verify
+endpoint for amendments is not in scope here.
 
 ---
 
 ## 4. `ClinicalLayerComplianceTest` (rename)
 
 `ShowcaseScenarioTest` renamed to `ClinicalLayerComplianceTest` via IntelliJ refactor.
-All 4 existing test methods kept unchanged. Class Javadoc updated: layer-by-layer
-compliance verification (Layers 1–3 paths, not the full showcase narrative).
+All 4 existing test methods kept unchanged. Class Javadoc updated.
 
 ---
 
 ## 5. `docs/comparison/clinicalagent.md`
 
-New directory `docs/comparison/` in project repo. Content:
-
 ```markdown
 # casehub-clinical vs ClinicalAgent (arXiv 2404.14777)
 
-ClinicalAgent is a peer-reviewed open-source baseline (ACM BCB '24) showing what naive
-LLM trial coordination looks like. It runs a linear single-site pipeline with no
-compliance infrastructure.
+ClinicalAgent (ACM BCB '24) runs a linear single-site pipeline with no compliance
+infrastructure.
 
 | GCP / FDA requirement | ClinicalAgent | casehub-clinical | Layer |
 |---|---|---|---|
@@ -457,16 +546,18 @@ compliance infrastructure.
 | PI authorisation for protocol deviations | Agent autonomous | COMMAND commitment — ProtocolDeviationService | 3 |
 | FDA tamper-evident audit | No audit trail | Merkle MMR — AdverseEventLedgerEntry | 4 |
 | IRB gate for CRITICAL deviations | Not addressed | deviation-review.yaml humanTask; 72h WorkItem | 5 |
-| Eligibility screening accountability | Agent decides; no record | EligibilityScreeningLedgerEntry; IRB gate if marginal | 9 |
-| Protocol amendment LLM supervision | Not addressed | ProtocolAmendmentAdvisor SPI (engine#101 pending) | 9 |
 | GDPR consent withdrawal (Art.17) | Not applicable | ConsentWithdrawalService + LedgerErasureService | 8 |
-| Multi-site independence | Single-site linear pipeline | Trial-level CaseInstance; per-site blackboard signals | 6 |
+| Multi-site independence | Single-site linear pipeline | Trial-level CaseInstance; blackboard signals | 6 |
 | Trust-weighted safety routing | No trust model | ClinicalTrustRoutingPolicyProvider; EigenTrust | 7 |
 | IND expedited safety reporting | Not addressed | RegulatorySubmissionCaseService; 21 CFR 312.32 | 7 |
+| Eligibility screening accountability | Agent decides; no record | EligibilityScreeningLedgerEntry; IRB gate if marginal | 9 |
+| Protocol amendment LLM supervision | Not addressed | ProtocolAmendmentAdvisor SPI (clinical#86 / engine#101) | 9 |
+
+Layer 9 = Showcase — new domain features exercising existing foundation layers without a
+new foundation module integration.
 
 FDA auditor verification (no server access required):
   GET /trials/{t}/sites/{s}/patients/{e}/ledger/verify
-  Returns Merkle inclusion proof for the complete patient decision chain.
 ```
 
 ---
@@ -475,8 +566,8 @@ FDA auditor verification (no server access required):
 
 | Migration | Datasource | Content |
 |---|---|---|
-| V122 | default | patient_enrollment: screening_result, screening_completed_at, eligibility_engine_case_id |
-| V123 | default | protocol_amendment table |
+| V122 | default | patient_enrollment: screening_result, screening_completed_at, eligibility_engine_case_id, eligibility_screening_case_status |
+| V123 | default | protocol_amendment table (inc. amendment_case_status) |
 | V2024 | qhorus | eligibility_screening_ledger_entry join table |
 | V2025 | qhorus | protocol_amendment_ledger_entry join table |
 
@@ -487,38 +578,40 @@ FDA auditor verification (no server access required):
 | Class | Module | Notes |
 |---|---|---|
 | `EligibilityScreeningResult` | api/model | Enum: CRITERIA_MET, MARGINAL, EXCLUDED |
+| `EligibilityScreeningCaseStatus` | api/model | Enum: NONE, REQUESTED, FAILED |
 | `CriterionResult` | api/model | Record: id, met, marginal |
 | `EligibilityScreeningEvent` | api | CDI event record |
 | `ProtocolAmendmentProposedEvent` | api | CDI event record |
-| `ProtocolAmendmentStatus` | api/model | Enum: PROPOSED, SUPERVISED, APPROVED, HALTED, REJECTED |
+| `ProtocolAmendmentStatus` | api/model | Enum: PROPOSED, SUPERVISED, APPROVED, HALTED |
+| `AmendmentCaseStatus` | api/model | Enum: NONE, REQUESTED, FAILED |
 | `AmendmentRecommendation` | api/spi | Enum: PROCEED, REFER_TO_DSMB, HALT |
 | `ProtocolAmendmentContext` | api/spi | Record: input to advisor |
 | `ProtocolAmendmentAdvisor` | api/spi | SPI interface |
-| `DefaultProtocolAmendmentAdvisor` | runtime/service | @DefaultBean stub |
+| `DefaultProtocolAmendmentAdvisor` | runtime/service | @DefaultBean stub → PROCEED |
 | `EligibilityScreeningService` | runtime/service | Screen logic + ledger write + event |
-| `EligibilityScreeningLedgerWriter` | runtime/service | ADR-0002 writer; writeScreeningEntry() |
+| `EligibilityScreeningLedgerWriter` | runtime/service | ADR-0002; writeScreeningEntry() |
 | `EligibilityScreeningLedgerEntry` | runtime/ledger | LedgerEntry subclass; V2024 |
 | `EligibilityScreeningCaseHub` | runtime/service | YamlCaseHub wrapper |
-| `EligibilityScreeningCaseService` | runtime/service | Three-phase observer |
-| `ProtocolAmendmentService` | runtime/service | persist + ledger + event |
-| `ProtocolAmendmentLedgerWriter` | runtime/service | ADR-0002 writer; proposal + resolution entries |
+| `EligibilityScreeningCaseService` | runtime/service | Four-phase observer |
+| `ProtocolAmendmentService` | runtime/service | @Transactional persist + ledger + event |
+| `ProtocolAmendmentLedgerWriter` | runtime/service | ADR-0002; proposal + resolution |
 | `ProtocolAmendmentLedgerEntry` | runtime/ledger | LedgerEntry subclass; V2025 |
 | `ProtocolAmendmentCaseHub` | runtime/service | YamlCaseHub + Java-function worker |
-| `ProtocolAmendmentCaseService` | runtime/service | Three-phase observer |
-| `ProtocolAmendmentListener` | runtime/service | GoalReached observer; status routing |
-| `ProtocolAmendmentResource` | runtime/resource | POST /trials/{t}/amendments |
+| `ProtocolAmendmentCaseService` | runtime/service | Four-phase observer |
+| `ProtocolAmendmentListener` | runtime/service | GoalReached observer; CaseInstanceRepository |
+| `ProtocolAmendmentResource` | runtime/resource | POST + GET /trials/{t}/amendments |
 | `ThreeSiteShowcaseTest` | runtime/test | §7.4 narrative integration test |
 
 ---
 
 ## Out of scope
 
-- `EligibilityIrbCompletionListener` (and `EligibilityScreeningLedgerWriter.writeResolutionEntry()`)
-  — IRB lifecycle already covered in `IrbGateLifecycleTest`; showcase asserts WorkItem created
-- Per-criterion storage table — screening result summary sufficient for FDA audit
-- Protocol amendment REFER_TO_DSMB and HALT paths exercised in tests — stub returns PROCEED;
-  paths are code-reachable via @InjectMock but not tested until #86 lands
-- Cross-site DSMB assertion — Grade 3 (Site B) doesn't meet ≥2 simultaneous Grade 4+ threshold;
+- `EligibilityScreeningLedgerWriter.writeResolutionEntry()` and IRB completion listener —
+  IRB lifecycle covered in `IrbGateLifecycleTest`; showcase asserts WorkItem created only
+- Per-criterion storage table — summary sufficient for FDA audit
+- Protocol amendment verify endpoint (`GET .../amendments/{id}/ledger/verify`) — amendment
+  ledger asserted via injected `LedgerEntryRepository` in the showcase test
+- Protocol amendment REFER_TO_DSMB and HALT paths exercised in tests — reachable via
+  `@InjectMock`; not tested in showcase (stub always returns PROCEED)
+- Cross-site DSMB assertion — Grade 3 (Site B) doesn't meet ≥2 simultaneous Grade 4+;
   DSMB rollup covered in `DsmbRollupTest`
-- `GET /trials/{t}/amendments/{id}` — needed by showcase test; a minimal GET handler
-  must be added to `ProtocolAmendmentResource`
