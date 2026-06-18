@@ -2,7 +2,7 @@
 
 **Issue:** casehubio/clinical#10
 **Branch:** issue-10-showcase-clinicalagent
-**Date:** 2026-06-18 (rev 5)
+**Date:** 2026-06-18 (rev 6)
 
 ---
 
@@ -376,7 +376,9 @@ public class ProtocolAmendmentCaseHub extends YamlCaseHub {
                                 (String) ctx.get("proposedChange"),
                                 Map.of()  // blackboard snapshot added when #86 lands
                             );
-                            return Map.of("advisorRecommendation", advisor.advise(pac).name());
+                            // WorkerFunction.Sync expects Function<Map<String,Object>, WorkerResult>
+                            // WorkerResult.of() is the factory for a success result with no planned action
+                            return WorkerResult.of(Map.of("advisorRecommendation", advisor.advise(pac).name()));
                         })
                         .build());
                     augmentedDefinition = def;
@@ -615,13 +617,6 @@ Per CLAUDE.md: unit tests for pure logic, integration tests for Panache/CDI/REST
 - `phase4_sets_FAILED_on_startCase_exception`
 - `initial_context_contains_amendmentId_as_string` — listener discrimination depends on it
 
-**`ProtocolAmendmentListenerTest`** (uses `@InjectMock CaseInstanceRepository`)
-- `proceed_sets_APPROVED_and_COMPLETED_and_non_null_recommendation`
-- `halt_sets_HALTED_and_COMPLETED`
-- `refer_to_dsmb_sets_SUPERVISED_and_COMPLETED`
-- `redelivery_skipped_when_supervisorRecommendation_already_set`
-- `non_amendment_case_skipped_when_amendmentId_absent_from_context`
-- `writes_resolution_ledger_entry_exactly_once`
 
 **`ProtocolAmendmentLedgerWriterTest`** (Mockito-mocked `LedgerEntryRepository`)
 - `writeProposalEntry_includes_proposedChange`
@@ -639,6 +634,16 @@ from the engine case:
 - `screen_CRITERIA_MET_sets_ELIGIBLE_status`
 - `screen_EXCLUDED_sets_INELIGIBLE_status`
 
+**`ProtocolAmendmentListenerTest`** (`@QuarkusTest` — listener calls `ProtocolAmendment.findById()`,
+a Panache static; cannot be mocked without Quarkus context. Reference: `AeEscalationListenerMemoryTest`
+pattern — `@InjectMock` for CDI deps, real entity in `@BeforeEach @Transactional setup()`).
+- `proceed_sets_APPROVED_and_COMPLETED_and_non_null_recommendation`
+- `halt_sets_HALTED_and_COMPLETED`
+- `refer_to_dsmb_sets_SUPERVISED_and_COMPLETED`
+- `redelivery_skipped_when_supervisorRecommendation_already_set`
+- `non_amendment_case_skipped_when_amendmentId_absent_from_context`
+- `writes_resolution_ledger_entry_exactly_once`
+
 **`ProtocolAmendmentIntegrationTest`** — exercises the full REST + observer path:
 - `propose_creates_amendment_PROPOSED_and_writes_proposal_ledger_entry`
 - `propose_then_await_APPROVED_writes_resolution_ledger_entry`
@@ -652,14 +657,14 @@ PROCEED happy path. HALT and REFER_TO_DSMB branches are covered in
 
 ---
 
-## 5. `ClinicalLayerComplianceTest` (rename)  
+## 5. `ClinicalLayerComplianceTest` (rename)
 
 `ShowcaseScenarioTest` renamed to `ClinicalLayerComplianceTest` via IntelliJ refactor.
 All 4 existing test methods kept unchanged. Class Javadoc updated.
 
 ---
 
-## 5. `docs/comparison/clinicalagent.md`
+## 6. `docs/comparison/clinicalagent.md`
 
 ```markdown
 # casehub-clinical vs ClinicalAgent (arXiv 2404.14777)
@@ -689,7 +694,7 @@ FDA auditor verification (no server access required):
 
 ---
 
-## 6. Migration numbers
+## 7. Migration numbers
 
 | Migration | Datasource | Content |
 |---|---|---|
@@ -700,7 +705,7 @@ FDA auditor verification (no server access required):
 
 ---
 
-## 7. New classes summary
+## 8. New classes summary
 
 | Class | Module | Notes |
 |---|---|---|
