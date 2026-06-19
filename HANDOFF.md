@@ -1,33 +1,34 @@
-# Session Handover — 2026-06-17
+# Session Handover — 2026-06-19
 
 ## Last Session
 
-Three S/XS issues closed on branch `issue-82-grade4-ind-s-fixes` (covers #82, #84, #85). #82: Grade 4 + unexpected AE now triggers IND 7-day expedited reporting — three-location atomic update per PP-20260617-3167e3. #84: SusarOversightLifecycleTest drives gate/lifecycle listeners directly; asserts COMPLETED not REQUESTED-or-COMPLETED. #85: `mvn install` CDI ambiguity fixed — `TenantScopedPrincipal @RequestScoped` (casehub-work) excluded from production CDI; `QhorusInboundCurrentPrincipal` remains sole non-default principal. 382 tests green; `mvn install` BUILD SUCCESS. Branch merged to casehubio/clinical main.
+Epic 10 closed: 3-site showcase + ClinicalAgent comparison. Implemented eligibility screening (Site A — eligibility-screening.yaml, EligibilityScreeningCaseService, EligibilityScreeningLedgerWriter, V2024) and protocol amendment (Site C — ProtocolAmendmentAdvisor SPI stub, protocol-amendment.yaml, ProtocolAmendmentListener, V2025). ThreeSiteShowcaseTest (§7.4 narrative) and docs/comparison/clinicalagent.md delivered. Code review surfaced three significant fixes: trial-existence check on POST /amendments, re-screen guard (409) on POST /screen, and entity-outside-@Transactional in EligibilityScreeningCaseService. Full build passes with ThreeSiteShowcaseTest excluded (engine race condition: clinical#87).
 
 ## Immediate Next Step
 
-Pick up #10 (3-site showcase + ClinicalAgent comparison) — now the only remaining dependency before the showcase.
+Choose next issue to work on. Candidates: #83 (IND reporting deadline enforced as WorkItem claimDeadline), #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands).
 
 ## What's Left
 
-- `casehubio/work#268` — upstream fix: make `TenantScopedPrincipal @Alternative` so clinical's `exclude-types` workaround can come out
-- `casehubio/parent#269` — sync `casehub-clinical.md` Layer 7 description (Grade 5 → Grade 3/4/5 IND path)
-- `SusarOversightLifecycleTest` tenantId inconsistency fixed (was "test-tenant" vs TEST_TENANCY_ID UUID) · S · Low ✅ done this session
-- `mvn install` CDI ambiguity fixed · S · Med ✅ done this session
+- `casehubio/work#268` — upstream fix: `TenantScopedPrincipal @Alternative` so clinical's `exclude-types` workaround comes out · S · Low
+- `casehubio/parent#269` — sync `casehub-clinical.md` Layer 7+8+9 description (filed: parent#287) · S · Low
+- `casehubio/parent#287` — sync `casehub-clinical.md` Layer 9 + new endpoints + ProtocolAmendmentAdvisor SPI · S · Low
+- `casehubio/clinical#86` — wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands · M · High (blocked: engine#101)
+- `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() API for ThreeSiteShowcaseTest isolation · S · Med (blocked: engine team)
+- `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — out of scope for #10, deferred
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #10 | 3-site showcase + ClinicalAgent comparison | XL | High | All S/XS cleared; Grade 4 path now complete |
 | #83 | IND reporting deadline enforced as WorkItem claimDeadline | M | Med | Needs regulatory-submission.yaml humanTask binding change |
-| #82 | IND Grade 4 7-day path | XS | Low | ✅ closed this session |
-| #84 | SusarOversightLifecycleTest direct listener invocation | S | Low | ✅ closed this session |
-| #85 | mvn install CDI ambiguity | S | Med | ✅ closed this session |
+| #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 (open) |
 
 ## References
 
-- Blog: `blog/2026-06-17-mdp01-grade4-cdi-and-a-jta-surprise.md`
-- Protocol: PP-20260617-318449 (clinical-test-entity-tenant-stamp — @BeforeEach must stamp tenantId)
-- Garden: GE-20260609-77a6f9 revised (work#268 upstream tracker added)
-- Upstream issues: casehubio/work#268, casehubio/parent#269
+- Blog: `blog/2026-06-18-mdp01-what-the-showcase-asked.md`
+- Spec: `specs/2026-06-18-showcase-clinicalagent-design.md`
+- Comparison: `docs/comparison/clinicalagent.md` (project repo)
+- LAYER-LOG: Layer 9 (Showcase) entry added
+- ARC42STORIES.MD: Status updated to "Layers 1–9 complete"
+- Upstream issues: work#268, parent#287, clinical#86, clinical#87
