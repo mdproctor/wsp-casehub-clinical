@@ -85,7 +85,8 @@
       "Bash(mvn -f /Users/mdproctor/claude/casehub/clinical/pom.xml install -pl api --batch-mode -q)",
       "Bash(mvn -f /Users/mdproctor/claude/casehub/clinical/pom.xml test -pl runtime -Dtest=EligibilityScreeningServiceTest --batch-mode)",
       "Bash(mvn -f /Users/mdproctor/claude/casehub/clinical/pom.xml test -pl runtime -Dtest=ProtocolAmendmentLedgerWriterTest --batch-mode)",
-      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/graalvm-25.jdk/Contents/Home /Library/Java/JavaVirtualMachines/graalvm-25.jdk/Contents/Home/bin/javap -p -c /tmp/InMemoryCaseInstanceRepository.class)"
+      "Bash(JAVA_HOME=/Library/Java/JavaVirtualMachines/graalvm-25.jdk/Contents/Home /Library/Java/JavaVirtualMachines/graalvm-25.jdk/Contents/Home/bin/javap -p -c /tmp/InMemoryCaseInstanceRepository.class)",
+      "Skill(code-review)"
     ]
   }
 }
