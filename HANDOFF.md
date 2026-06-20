@@ -8,11 +8,11 @@ Epic 10 closed: 3-site showcase + ClinicalAgent comparison. Implemented eligibil
 
 Choose next issue to work on. Candidates: #83 (IND reporting deadline enforced as WorkItem claimDeadline), #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands).
 
+*Updated: work#268, parent#287 closed — removed from backlog.*
+
 ## What's Left
 
-- `casehubio/work#268` — upstream fix: `TenantScopedPrincipal @Alternative` so clinical's `exclude-types` workaround comes out · S · Low
-- `casehubio/parent#269` — sync `casehub-clinical.md` Layer 7+8+9 description (filed: parent#287) · S · Low
-- `casehubio/parent#287` — sync `casehub-clinical.md` Layer 9 + new endpoints + ProtocolAmendmentAdvisor SPI · S · Low
+- `casehubio/parent#269` — sync `casehub-clinical.md` Layer 7+8+9 description (was tracked via parent#287, now closed) · S · Low
 - `casehubio/clinical#86` — wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands · M · High (blocked: engine#101)
 - `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() API for ThreeSiteShowcaseTest isolation · S · Med (blocked: engine team)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — out of scope for #10, deferred
