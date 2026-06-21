@@ -416,9 +416,15 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 
 This is the critical invariant test — verifies the full data path: `ae.reportedAt + indReportingWindow(grade) → case context → JQ expression (.indReportingDeadline) → HumanTaskScheduleEvent.expiresAtDeadline → WorkItem.expiresAt`. Without it, the expression could be wired incorrectly (wrong field name, wrong format) and no other test would catch it.
 
+Setup requirements:
+- Stamp `ae.tenantId = principal.tenancyId()` on persist (CLAUDE.md required pattern — omission causes `SecurityException` from `MemoryPermissions.assertTenant()` during engine case processing, producing a confusing failure rather than a clear assertion failure)
+- All other entity fields per existing lifecycle test patterns (`DsmbRollupTest`, `AeEscalationLifecycleTest`)
+
+Test steps:
 - Persist Grade 3 unexpected AE with `reportedAt = Instant.parse("2026-07-01T10:00:00Z")`
 - Fire `AdverseEventReportedEvent` via `RegulatorySubmissionCaseService.onAdverseEventReported()`
-- Wait for the regulatory submission WorkItem to appear in `WorkItemStore` (filter by `callerRef` prefix `case:` + `candidateGroups` containing `regulatory-affairs`)
+- `HumanTaskScheduleHandler` fires on a Vert.x worker thread (`@ConsumeEvent(blocking=true)`) after `onAdverseEventReported()` returns — the WorkItem does not exist yet at return. Use Awaitility: `await().atMost(10, SECONDS).pollInterval(100, MILLISECONDS).untilAsserted(...)` (reference: `RegulatorySubmissionCaseServiceTest`, `AeEscalationLifecycleTest`)
+- Find WorkItem by `candidateGroups` containing `"regulatory-affairs"` and `callerRef` starting with `"case:"`
 - Assert `workItem.expiresAt == Instant.parse("2026-07-16T10:00:00Z")` (reportedAt + 15 days, Grade 3)
 - Repeat for Grade 4: `reportedAt + 7 days`
 
