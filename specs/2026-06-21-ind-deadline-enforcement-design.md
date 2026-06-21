@@ -34,7 +34,15 @@ default Optional<String> extractString(ExpressionEvaluator evaluator, CaseContex
 }
 ```
 
-`ExpressionEngineRegistry` gains the same dispatch method. `DefaultExpressionEngineRegistry` implements it with the existing engine-lookup pattern: iterate `Instance<ExpressionEngine>`, match on `engine.type()`, delegate. `JQExpressionEngine` overrides `extractString()`: evaluate via `jqEvaluator.eval()`, return `Optional.of(output.get(0).asText())` when the first output element is a text node, `Optional.empty()` with WARN log otherwise.
+`ExpressionEngineRegistry` gains the same dispatch method. `DefaultExpressionEngineRegistry` implements it: find the matching engine by type, call `engine.extractString()`, catch `UnsupportedOperationException` (engine doesn't override the default), log WARN, return `Optional.empty()`. The distinction between "no engine registered" (throw `IllegalArgumentException` — programming error) and "engine registered but doesn't support string extraction" (graceful `Optional.empty()` + WARN) is preserved.
+
+`JQExpressionEngine` overrides `extractString()`: evaluate via `jqEvaluator.eval()`, then:
+```java
+JsonNode result = vr.output().get(0);
+if (!result.isTextual()) return Optional.empty();  // NullNode.asText() returns "null" — avoid Instant.parse("null")
+return Optional.of(result.asText());
+```
+`isTextual()` guard ensures only genuine string JQ output reaches `Instant.parse()`. A missing context field produces JQ `null` → `NullNode` → `isTextual()` false → `Optional.empty()` (no deadline, no spurious WARN). Non-text outputs (numbers, booleans) are equally clean.
 
 This is fully pluggable: any `ExpressionEngine` CDI bean can support value extraction by overriding `extractString()`. No `instanceof` anywhere.
 
@@ -167,16 +175,24 @@ Implements `SlaBreachPolicy`. The policy is **pure** — makes a decision and re
 
 ```java
 public BreachDecision onBreach(SlaBreachContext ctx) {
-    if (!ctx.task().candidateGroups().contains("regulatory-affairs")) {
+    // After EscalateTo executes, ExpiryLifecycleService replaces candidateGroups with the
+    // escalation group — "regulatory-affairs" is gone on the second breach. Both groups
+    // must be tested to identify regulatory WorkItems across both breach tiers.
+    boolean isRegulatory = ctx.task().candidateGroups().contains("regulatory-affairs")
+                        || ctx.task().candidateGroups().contains("regulatory-leadership");
+    if (!isRegulatory) {
         return new Fail("no-sla-breach-policy-configured");
     }
-    // Stateless two-tier: if regulatory-leadership is already assigned, this is the second breach
+    // Second breach: regulatory-leadership was already assigned — exhaustion
     if (ctx.task().candidateGroups().contains("regulatory-leadership")) {
         return new Exhausted("IND reporting deadline exhausted — operator intervention required");
     }
+    // First breach: escalate to regulatory leadership with 48h window
     return EscalateTo.to("regulatory-leadership").withDeadline(Duration.ofHours(48));
 }
 ```
+
+**Why the `isRegulatory` guard must test both groups:** `executeEscalateTo()` in `ExpiryLifecycleService` replaces `item.candidateGroups` with `String.join(",", escalate.groups())`. After the first escalation fires, `candidateGroups = {"regulatory-leadership"}` — `"regulatory-affairs"` is gone. Without the combined test, the policy would return `Fail` for its own escalated WorkItem and the `Exhausted` branch would be unreachable.
 
 **Single fixed 48h escalation window for all grades.** Grade-specific logic (e.g. Grade 5 needing faster response) belongs in the `RegulatorySubmissionBreachListener` (see below) where `AdverseEvent.grade` is available via DB, not in the pure policy. The 48h window gives regulatory leadership time to initiate a late filing with explanation regardless of grade.
 
@@ -189,14 +205,16 @@ Observes `CaseLifecycleEvent` for `GoalReached` and `CaseCompleted` event types.
 ```java
 public void onCaseLifecycleEvent(@ObservesAsync CaseLifecycleEvent event) {
     if (!"GoalReached".equals(event.eventType()) && !"CaseCompleted".equals(event.eventType())) return;
-    markFiled(event.caseId(), event.tenancyId());
+    markFiled(event.caseId());
 }
 
 @Transactional
-void markFiled(UUID caseId, String tenancyId) {
+void markFiled(UUID caseId) {
     AdverseEvent ae = AdverseEvent.find("regulatorySubmissionCaseId", caseId).firstResult();
     if (ae == null) return;  // not a regulatory submission case
-    if (ae.regulatorySubmissionStatus == RegulatorySubmissionStatus.FILED) return;  // idempotency
+    // Guard: only process if still PENDING — protects against DEADLINE_MISSED being overwritten
+    // and against CDI at-least-once re-delivery
+    if (ae.regulatorySubmissionStatus != RegulatorySubmissionStatus.PENDING) return;
     ae.regulatorySubmissionStatus = RegulatorySubmissionStatus.FILED;
     ledgerWriter.writeFiledEntry(ae);
 }
@@ -204,27 +222,36 @@ void markFiled(UUID caseId, String tenancyId) {
 
 ### `RegulatorySubmissionBreachListener`
 
-Observes `WorkItemLifecycleEvent` for `ESCALATED` status. Discriminates via `callerRef` → `caseId` → `AdverseEvent.find("regulatorySubmissionCaseId", caseId)`:
+Observes `WorkItemLifecycleEvent` for `ESCALATED` status. Discriminates via `callerRef` → `caseId` → `AdverseEvent.find("regulatorySubmissionCaseId", caseId)`.
+
+**API constraints established from source inspection:**
+- `WorkItemLifecycleEvent` has no `callerRef()` method. The embedded `WorkItem` entity is accessible via `(WorkItem) event.source()` — null for wire-reconstructed events (guard required).
+- `WorkItemLifecycleEvent.detail()` is always `null` for `ESCALATED` events: `ExpiryLifecycleService.fireLifecycleEvent()` calls `WorkItemLifecycleEvent.of(event, item, "system", null)` (hardcoded null detail). The `Exhausted(reason)` string goes to the audit log only, not to the lifecycle event.
+- `WorkItemCallerRef` does not exist — only `PlanItemCallerRef` in the engine's work-adapter. Adding `static UUID parseCaseId(String callerRef)` to `PlanItemCallerRef` is the correct engine change (format defined there; duplication in clinical would be a workaround).
 
 ```java
 public void onWorkItemLifecycle(@ObservesAsync WorkItemLifecycleEvent event) {
     if (event.status() != WorkItemStatus.ESCALATED) return;
-    UUID caseId = WorkItemCallerRef.parseCaseId(event.callerRef());
+    WorkItem workItem = (WorkItem) event.source();
+    if (workItem == null || workItem.callerRef == null) return;
+    UUID caseId = PlanItemCallerRef.parseCaseId(workItem.callerRef);  // engine addition
     if (caseId == null) return;
-    markDeadlineMissed(caseId, event);
+    markDeadlineMissed(caseId);
 }
 
 @Transactional
-void markDeadlineMissed(UUID caseId, WorkItemLifecycleEvent event) {
+void markDeadlineMissed(UUID caseId) {
     AdverseEvent ae = AdverseEvent.find("regulatorySubmissionCaseId", caseId).firstResult();
     if (ae == null) return;
-    if (ae.regulatorySubmissionStatus == RegulatorySubmissionStatus.DEADLINE_MISSED) return;  // idempotency
+    // Guard: only process if still PENDING — protects against FILED being overwritten
+    // and against CDI at-least-once re-delivery
+    if (ae.regulatorySubmissionStatus != RegulatorySubmissionStatus.PENDING) return;
     ae.regulatorySubmissionStatus = RegulatorySubmissionStatus.DEADLINE_MISSED;
-    ledgerWriter.writeBreachEntry(ae, event.reason());
+    ledgerWriter.writeBreachEntry(ae);
 }
 ```
 
-`ESCALATED` status fires when `Exhausted` is returned by the policy (all escalation groups exhausted). The `WorkItemLifecycleAdapter` in the engine excludes ESCALATED from PlanItem transitions but the CDI event still fires from casehub-work — clinical observes it directly. Grade is available via `AdverseEvent.grade` for any grade-specific breach handling in the ledger entry.
+`ESCALATED` status fires when `Exhausted` is returned by the policy (all escalation groups exhausted). `ExpiryLifecycleService.executeExhausted()` calls `fireLifecycleEvent("ESCALATED", item)` — the CDI event fires from casehub-work and is observed by clinical directly (`WorkItemLifecycleAdapter` in the engine ignores ESCALATED for PlanItem transitions, but the CDI event itself is still published). Grade is available via `AdverseEvent.grade` for any grade-specific breach handling in the ledger entry.
 
 ### Ledger — new subclasses
 
@@ -235,15 +262,15 @@ void markDeadlineMissed(UUID caseId, WorkItemLifecycleEvent event) {
 - `grade VARCHAR(20) NOT NULL`
 - `submittedAt TIMESTAMP NOT NULL` — actual filing time
 - `domainContentBytes()`: `aeId + grade + submittedAt.toString()`
-- V2024 migration: `ind_report_filed_ledger_entry` join table
+- V2026 migration: `ind_report_filed_ledger_entry` join table
 
 **`IndReportBreachLedgerEntry`** — `@DiscriminatorValue("IndReportBreach")`:
 - `aeId UUID NOT NULL`
 - `grade VARCHAR(20) NOT NULL`
 - `breachedAt TIMESTAMP NOT NULL`
-- `breachReason VARCHAR(255)`
+- `breachReason VARCHAR(255)` — fixed string `"IND reporting deadline exhausted without submission"` (not taken from `WorkItemLifecycleEvent.detail()` which is always null for ESCALATED events; `ExpiryLifecycleService` hardcodes `null` as the detail in `fireLifecycleEvent()`)
 - `domainContentBytes()`: `aeId + grade + breachedAt.toString()`
-- V2025 migration: `ind_report_breach_ledger_entry` join table
+- V2027 migration: `ind_report_breach_ledger_entry` join table
 
 **Note on existing `RegulatorySubmissionLedgerEntry.filedAt`:** This column is named `filed_at` but currently set to `now` at obligation identification time — before any filing occurs. The column name implies the IND was filed at that moment, which is incorrect. This is a pre-existing semantic issue; the existing entry's `filedAt` means "obligation identified at." Not fixed in this issue but noted here to avoid confusion: `IndReportFiledLedgerEntry.submittedAt` is semantically correct (actual filing time), while the original `filed_at` is not.
 
@@ -254,7 +281,7 @@ void markDeadlineMissed(UUID caseId, WorkItemLifecycleEvent event) {
 public void writeFiledEntry(AdverseEvent ae) { ... }   // IndReportFiledLedgerEntry, submittedAt = now
 
 @Transactional(TxType.MANDATORY)
-public void writeBreachEntry(AdverseEvent ae, String reason) { ... }  // IndReportBreachLedgerEntry
+public void writeBreachEntry(AdverseEvent ae) { ... }  // IndReportBreachLedgerEntry, breachReason = fixed string
 ```
 
 Both attach `ClinicalComplianceSupplement` per the existing pattern.
@@ -271,8 +298,10 @@ Contrary to the initial spec's claim, **two new Flyway migrations are needed** f
 
 | Migration | Datasource | Table | Version |
 |-----------|-----------|-------|---------|
-| V2024 | qhorus | `ind_report_filed_ledger_entry` | new |
-| V2025 | qhorus | `ind_report_breach_ledger_entry` | new |
+| V2026 | qhorus | `ind_report_filed_ledger_entry` | new |
+| V2027 | qhorus | `ind_report_breach_ledger_entry` | new |
+
+V2024 (`eligibility_screening_ledger_entry`) and V2025 (`protocol_amendment_ledger_entry`) are already taken by Layer 9 (clinical#10).
 
 No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR enum column) or the YAML/service changes.
 
@@ -294,6 +323,7 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 | `runtime/src/main/java/io/casehub/engine/internal/engine/DefaultExpressionEngineRegistry.java` | Implement `extractString()` dispatch |
 | `runtime/src/main/java/io/casehub/engine/internal/engine/handler/CaseContextChangedEventHandler.java` | `resolveExpiresAtDeadline()`, pass `expiresAtDeadline` in event |
 | `common/src/main/java/io/casehub/engine/common/internal/event/HumanTaskScheduleEvent.java` | Add `expiresAtDeadline: Instant` field |
+| `work-adapter/src/main/java/io/casehub/workadapter/PlanItemCallerRef.java` | Add `static UUID parseCaseId(String callerRef)` |
 | `work-adapter/src/main/java/io/casehub/workadapter/HumanTaskScheduleHandler.java` | `createInline()` gains `expiresAtDeadline` param; template mode caps with `earliestOf` |
 | `work-adapter/src/test/java/io/casehub/workadapter/HumanTaskScheduleHandlerTest.java` | Tests for inline + template mode `expiresAtDeadline` behaviour |
 
@@ -309,8 +339,8 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 | `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionLedgerWriter.java` | Add `writeFiledEntry()`, `writeBreachEntry()` |
 | `runtime/src/main/java/io/casehub/clinical/ledger/IndReportFiledLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportFiled")` |
 | `runtime/src/main/java/io/casehub/clinical/ledger/IndReportBreachLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportBreach")` |
-| `runtime/src/main/resources/db/migration/qhorus/V2024__ind_report_filed_ledger_entry.sql` | New join table |
-| `runtime/src/main/resources/db/migration/qhorus/V2025__ind_report_breach_ledger_entry.sql` | New join table |
+| `runtime/src/main/resources/db/migration/qhorus/V2026__ind_report_filed_ledger_entry.sql` | New join table (V2024/V2025 taken by Layer 9) |
+| `runtime/src/main/resources/db/migration/qhorus/V2027__ind_report_breach_ledger_entry.sql` | New join table |
 | `runtime/src/test/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicyTest.java` | New unit tests |
 | `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListenerTest.java` | New integration tests |
 | `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionBreachListenerTest.java` | New integration tests |
@@ -338,7 +368,7 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 
 **`ClinicalIndReportingBreachPolicyTest` (unit):**
 - Regulatory-affairs WorkItem (first breach): `EscalateTo("regulatory-leadership", PT48H)`
-- Regulatory-leadership WorkItem (second breach): `Exhausted`
+- Regulatory-leadership WorkItem (second breach — candidateGroups replaced after first escalation): `Exhausted`
 - Non-regulatory WorkItem: `Fail("no-sla-breach-policy-configured")`
 
 **`RegulatorySubmissionCompletedListenerTest` (integration, `@QuarkusTest`):**
@@ -350,7 +380,9 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 **`RegulatorySubmissionBreachListenerTest` (integration, `@QuarkusTest`):**
 - ESCALATED event with regulatory-submission `callerRef` → `ae.regulatorySubmissionStatus = DEADLINE_MISSED`, breach ledger entry written
 - ESCALATED event with non-regulatory `callerRef` → no AE state change
-- Duplicate ESCALATED event → idempotency guard, second call is no-op
+- Duplicate ESCALATED event → idempotency guard (`!= PENDING`), second call is no-op
+- ESCALATED event when AE is already FILED → idempotency guard protects against overwrite
 - Non-ESCALATED status events → ignored
+- Wire-reconstructed event (`event.source() == null`) → no AE state change
 
 **Existing `RegulatorySubmissionCaseServiceTest`:** All existing tests pass unchanged — service API is unmodified.
