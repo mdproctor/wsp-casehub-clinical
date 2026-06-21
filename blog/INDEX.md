@@ -34,3 +34,4 @@
 | [2026-06-10-mdp01-the-filter-that-wasnt-there.md](2026-06-10-mdp01-the-filter-that-wasnt-there.md) | 2026-06-10 | Why Hibernate @Filter doesn't apply to findById(), and the entity-helper pattern for per-request tenant isolation |
 | [2026-06-12-mdp01-the-event-that-fires-too-early.md](2026-06-12-mdp01-the-event-that-fires-too-early.md) | 2026-06-12 | Layer 8 ActionRiskClassifier — the engine event timing issue that blocks programmatic worker bindings |
 | [2026-06-13-mdp01-what-the-binding-schema-actually-is.md](2026-06-13-mdp01-what-the-binding-schema-actually-is.md) | 2026-06-13 | SUSAR oversight case hub, gate listener race condition, GDPR withdrawal, ComplianceSupplement |
+| [2026-06-22-mdp01-what-seven-days-actually-means.md](2026-06-22-mdp01-what-seven-days-actually-means.md) | 2026-06-22 | IND deadline enforcement — expiresAtExpression engine SPI, six spec review rounds, Layer 10 |
