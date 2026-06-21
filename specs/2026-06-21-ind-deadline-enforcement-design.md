@@ -7,7 +7,7 @@
 
 ## Problem
 
-`RegulatorySubmissionCaseService` correctly computes `indReportingDeadline` (`ae.reportedAt + window`) and places it in the case context. The `regulatory-submission.yaml` currently uses a `capability` binding with no deadline enforcement. If the filing agent misses the window, nothing in the platform detects it.
+`RegulatorySubmissionCaseService` correctly computes `indReportingDeadline` (`ae.reportedAt + window`) and places it in the case context. The `regulatory-submission.yaml` uses a `capability` binding with no deadline enforcement. If the filing agent misses the window, nothing in the platform detects it.
 
 The FDA deadline is measured from AE report time — not from case start or WorkItem creation. A relative `expiresIn: P7D` from WorkItem creation is structurally wrong: it measures from the wrong origin and diverges when there is any processing delay.
 
@@ -19,49 +19,115 @@ The correct enforcement invariant: `WorkItem.expiresAt = ae.reportedAt + indRepo
 
 ### Why not `PropagationContext`
 
-`PropagationContext.createRoot(attrs, budget)` computes `deadline = now() + budget`. Setting `budget = indDeadline - now()` gives approximate correctness (milliseconds drift across two `Instant.now()` calls), but it encodes an absolute regulatory deadline as a resource budget — semantically wrong. It also requires Java changes in the service for what is purely YAML-declarative information: the deadline is a property of the binding, not of the case's execution budget.
+`PropagationContext.createRoot(attrs, budget)` computes `deadline = now() + budget`. To use it for absolute deadline enforcement, the service would compute `budget = indDeadline - now()`, introducing clock drift across two `Instant.now()` calls. More fundamentally, it encodes an absolute regulatory deadline as a resource budget — a semantic mismatch — and requires Java service changes for information that is purely YAML-declarative. The deadline is a property of the humanTask binding, not the case's execution budget.
 
 ### New SPI: `ExpressionEngine.extractString()`
 
-The existing `ExpressionEngine` SPI handles only boolean evaluation (`evaluate(ExpressionEvaluator, CaseContext): boolean`). Value-typed extraction (returning a `String`) is a new capability. Adding it as a default method on `ExpressionEngine` lets engines opt in without breaking existing implementations:
+The existing `ExpressionEngine` SPI handles only boolean evaluation (`evaluate(ExpressionEvaluator, CaseContext): boolean`). Value-typed extraction (returning a `String`) is a distinct capability. Adding it as a default `default` method lets existing engine implementations compile unmodified:
 
 ```java
 // ExpressionEngine.java
 default Optional<String> extractString(ExpressionEvaluator evaluator, CaseContext context) {
     throw new UnsupportedOperationException(
-        "ExpressionEngine '" + type() + "' does not support string extraction.");
+        "ExpressionEngine '" + type() + "' does not support string extraction. " +
+        "Override extractString() to enable this capability.");
 }
 ```
 
-`ExpressionEngineRegistry` gains the same dispatch method. `DefaultExpressionEngineRegistry` implements it with the existing engine-lookup pattern (iterate `@Inject Instance<ExpressionEngine> engines`, match on `engine.type().equals(evaluator.type())`). `JQExpressionEngine` overrides `extractString()`: evaluates via `jqEvaluator.eval()`, returns `Optional.of(output.get(0).asText())` when the first output element is a text node, `Optional.empty()` with WARN otherwise.
+`ExpressionEngineRegistry` gains the same dispatch method. `DefaultExpressionEngineRegistry` implements it with the existing engine-lookup pattern: iterate `Instance<ExpressionEngine>`, match on `engine.type()`, delegate. `JQExpressionEngine` overrides `extractString()`: evaluate via `jqEvaluator.eval()`, return `Optional.of(output.get(0).asText())` when the first output element is a text node, `Optional.empty()` with WARN log otherwise.
 
-This is fully pluggable: any `ExpressionEngine` CDI bean can override `extractString()` to support value extraction in its language. No `instanceof JQExpressionEvaluator` anywhere.
+This is fully pluggable: any `ExpressionEngine` CDI bean can support value extraction by overriding `extractString()`. No `instanceof` anywhere.
 
 ### `HumanTaskTarget.expiresAtExpression`
 
-Add `expiresAtExpression: ExpressionEvaluator` to `HumanTaskTarget` — same type and builder pattern as `inputMapping`/`outputMapping` (both `String` and `ExpressionEvaluator` builder overloads).
+Add `expiresAtExpression: ExpressionEvaluator` to `HumanTaskTarget` — same type and builder pattern as `inputMapping`/`outputMapping` (both `String` and `ExpressionEvaluator` builder overloads). The `String` overload wraps in `JQExpressionEvaluator` — same as `inputMapping`:
 
-### Schema → mapper → event → handler
-
-**`CaseDefinition.yaml` (schema source):** Add `expiresAtExpression: string` to the `HumanTask` definition with a description. `HumanTask.java` is regenerated by Maven from this source.
-
-**`CaseDefinitionYamlMapper.convertHumanTask()`:** After the `expiresIn` block, map the new field:
 ```java
-if (schema.getExpiresAtExpression() != null && !schema.getExpiresAtExpression().isBlank()) {
-    builder.expiresAtExpression(registry.create(schema.getExpiresAtExpression(), expressionLang));
+public Builder expiresAtExpression(String expression) {
+    this.expiresAtExpression = new JQExpressionEvaluator(expression);
+    return this;
+}
+public Builder expiresAtExpression(ExpressionEvaluator evaluator) {
+    this.expiresAtExpression = evaluator;
+    return this;
 }
 ```
 
-**`HumanTaskScheduleEvent`:** Add `expiresAtDeadline: Instant` field (null when no expression or evaluation fails). Evaluated upstream — before the event is published — so `HumanTaskScheduleHandler` remains expression-free.
+### Schema → mapper → event → handler
 
-**`CaseContextChangedEventHandler.publishHumanTaskSchedule()`:** After resolving `caseBudgetDeadline`, evaluate `target.expiresAtExpression()` via `registry.extractString()`. Parse the result as `Instant.parse()`. Warn and use null on parse failure. Pass as `expiresAtDeadline` in the event.
+**`CaseDefinition.yaml` (schema source):** Add `expiresAtExpression: string` to the `HumanTask` definition. `HumanTask.java` is regenerated by Maven from this source — the new `String expiresAtExpression` field follows the same pattern as `String expiresIn`.
 
-**`HumanTaskScheduleHandler.createInline()`:** Fold `event.expiresAtDeadline()` into the existing `earliestOf` chain:
+**`CaseDefinitionYamlMapper.convertHumanTask()`:** `convertHumanTask()` is private static and has no access to `ExpressionEngineRegistry`. `inputMapping` and `outputMapping` both bypass the registry and call `Builder.inputMapping(String)` → `new JQExpressionEvaluator(expression)` directly. `expiresAtExpression` follows the same pattern:
+
 ```java
-Instant taskDeadline = target.expiresIn() != null ? Instant.now().plus(target.expiresIn()) : null;
-Instant effectiveDeadline = earliestOf(earliestOf(taskDeadline, event.expiresAtDeadline()), caseBudgetDeadline);
+if (schema.getExpiresAtExpression() != null && !schema.getExpiresAtExpression().isBlank()) {
+    // Validate JQ syntax at load time — silent null at runtime is a regulatory SLA failure
+    try {
+        net.thisptr.jackson.jq.JsonQuery.compile(schema.getExpiresAtExpression(), net.thisptr.jackson.jq.Versions.JQ_1_6);
+    } catch (Exception e) {
+        throw new IllegalArgumentException(
+            "invalid expiresAtExpression '" + schema.getExpiresAtExpression() + "' — " + e.getMessage(), e);
+    }
+    builder.expiresAtExpression(schema.getExpiresAtExpression());
+}
 ```
-The existing 2-arg `earliestOf` is preserved; chaining handles 3-way.
+
+Fail-fast at YAML load is the correct invariant. An invalid expression that silently produces `Optional.empty()` at runtime leaves the WorkItem with no absolute deadline — a silent regulatory SLA gap that is only discovered at breach time.
+
+**`HumanTaskScheduleEvent`:** Add `expiresAtDeadline: Instant` field (null when no expression or evaluation fails). The expression is evaluated upstream, in `CaseContextChangedEventHandler`, so `HumanTaskScheduleHandler` remains expression-free.
+
+**`CaseContextChangedEventHandler.publishHumanTaskSchedule()`:** After resolving `caseBudgetDeadline`, add:
+
+```java
+final Instant expiresAtDeadline = resolveExpiresAtDeadline(caseInstance, target);
+```
+
+New private method:
+```java
+private Instant resolveExpiresAtDeadline(CaseInstance caseInstance, HumanTaskTarget target) {
+    if (target.expiresAtExpression() == null) return null;
+    return registry.extractString(target.expiresAtExpression(), caseInstance.getCaseContext())
+        .map(s -> {
+            try { return Instant.parse(s); }
+            catch (Exception e) {
+                LOG.warnf("expiresAtExpression result '%s' is not a valid ISO-8601 instant — ignoring", s);
+                return null;
+            }
+        })
+        .orElse(null);
+}
+```
+
+The expression evaluates against the **full case context** (`caseInstance.getCaseContext()`), not against `inputData`. `indReportingDeadline` is a field in the case context placed there by `RegulatorySubmissionCaseService`. Pass `expiresAtDeadline` in the `HumanTaskScheduleEvent` constructor.
+
+**`HumanTaskScheduleHandler.createInline()`:** Add `Instant expiresAtDeadline` as a new parameter, passed from `handleInlineMode()` via `event.expiresAtDeadline()`. Fold into `earliestOf` chain:
+
+```java
+private void createInline(
+    HumanTaskTarget target,
+    Map<String, Object> inputData,
+    Set<String> resolvedGroups,
+    Set<String> resolvedUsers,
+    String callerRef,
+    Instant expiresAtDeadline,       // new
+    Instant caseBudgetDeadline) {
+  Instant taskDeadline = target.expiresIn() != null ? Instant.now().plus(target.expiresIn()) : null;
+  Instant effectiveDeadline = earliestOf(earliestOf(taskDeadline, expiresAtDeadline), caseBudgetDeadline);
+  ...
+}
+```
+
+**Template mode (`handleTemplateMode`):** Template-mode WorkItems must also respect `expiresAtDeadline`. After `workItemTemplateService.instantiate()`, apply:
+
+```java
+if (event.expiresAtDeadline() != null) {
+    workItem.expiresAt = workItem.expiresAt == null
+        ? event.expiresAtDeadline()
+        : earliestOf(workItem.expiresAt, event.expiresAtDeadline());
+}
+```
+
+This preserves the template's own `expiresAt` when it is earlier, enforcing that a template's deadline can never be extended by the binding's expression — and that the binding's absolute deadline is honoured even if the template has a later one. The regulatory submission case uses inline mode; template mode support is included for correctness.
 
 ---
 
@@ -85,106 +151,206 @@ bindings:
       outputMapping: "{ submissionFiled: . }"
 ```
 
-`expiresAtExpression: ".indReportingDeadline"` evaluates against the **case context** at scheduling time (in `CaseContextChangedEventHandler`, before the event is published), returning the ISO-8601 deadline string already placed there by `RegulatorySubmissionCaseService`. The engine parses it to `Instant` and sets `WorkItem.expiresAt = indReportingDeadline` exactly. No Java service changes required.
+`expiresAtExpression: ".indReportingDeadline"` evaluates against the case context at scheduling time, returning the ISO-8601 deadline string placed there by `RegulatorySubmissionCaseService`. The engine parses it to `Instant` and sets `WorkItem.expiresAt = indReportingDeadline` exactly. No Java service changes required.
 
-The `goals` and `completion` sections are unchanged: `submission-complete: .submissionFiled != null` fires when the WorkItem is completed and `outputMapping` writes `submissionFiled` to the case context.
+The `goals` and `completion` sections are unchanged: `submission-complete: .submissionFiled != null` fires when the humanTask WorkItem is completed and `outputMapping` writes `submissionFiled` to the case context.
 
 ### `RegulatorySubmissionStatus` enum
 
-Add `FILED` (successful submission within deadline) and `DEADLINE_MISSED` (WorkItem expired/escalated without completion). These are additive values — no Flyway migration needed (persisted as VARCHAR, new constants are transparent to existing rows).
+`FILED` already exists. Add only `DEADLINE_MISSED` (IND deadline exhausted without submission). New value is additive — no Flyway migration required for the enum column (persisted as `VARCHAR`).
 
 ### `ClinicalIndReportingBreachPolicy`
 
-Implements `SlaBreachPolicy`. Discriminates by WorkItem `candidateGroups` containing `"regulatory-affairs"` — returns `Chained` for any other WorkItem so it doesn't intercept unrelated tasks.
+Implements `SlaBreachPolicy`. The policy is **pure** — makes a decision and returns, no side effects, no CDI service calls, no DB queries.
 
-For regulatory-affairs WorkItems on `COMPLETION_EXPIRED`:
-- **Grade 5 (SUSAR-qualifying):** `EscalateTo("regulatory-leadership", deadline + 24h)`. On exhaustion: `Exhausted("IND Grade-5 reporting deadline missed — immediate regulatory intervention required")`.
-- **Grade 3/4:** `EscalateTo("regulatory-leadership", deadline + 48h)` to allow late filing with documented explanation. On exhaustion: `Exhausted("IND reporting deadline missed — regulatory intervention required")`.
+**Discrimination:** `BreachedTask` exposes only `taskId`, `callerRef`, `title`, `candidateGroups`. There is no payload field; grade is inaccessible. Grade-specific escalation timing therefore cannot be expressed here. The policy uses `candidateGroups` to discriminate regulatory WorkItems:
 
-The grade is extracted from the WorkItem payload (present via `inputMapping`). On exhaustion, the policy calls `ledgerWriter.writeBreachEntry(ae, breachType)` before returning `Exhausted`.
+```java
+public BreachDecision onBreach(SlaBreachContext ctx) {
+    if (!ctx.task().candidateGroups().contains("regulatory-affairs")) {
+        return new Fail("no-sla-breach-policy-configured");
+    }
+    // Stateless two-tier: if regulatory-leadership is already assigned, this is the second breach
+    if (ctx.task().candidateGroups().contains("regulatory-leadership")) {
+        return new Exhausted("IND reporting deadline exhausted — operator intervention required");
+    }
+    return EscalateTo.to("regulatory-leadership").withDeadline(Duration.ofHours(48));
+}
+```
+
+**Single fixed 48h escalation window for all grades.** Grade-specific logic (e.g. Grade 5 needing faster response) belongs in the `RegulatorySubmissionBreachListener` (see below) where `AdverseEvent.grade` is available via DB, not in the pure policy. The 48h window gives regulatory leadership time to initiate a late filing with explanation regardless of grade.
+
+**For non-regulatory WorkItems:** `Fail("no-sla-breach-policy-configured")` — identical to `NoOpSlaBreachPolicy` default. This makes the policy's scope explicit: it owns regulatory-affairs WorkItems and explicitly defers all others to platform default behaviour. Do NOT use `Chained` — `Chained(primary, fallback)` is a two-armed decision combinator that tries the primary decision; it is not a pass-through.
 
 ### `RegulatorySubmissionCompletedListener`
 
-Observes `CaseLifecycleEvent` for `GoalReached` and `CaseCompleted` event types. Discriminates by case namespace `clinical` and case name `regulatory-submission` (reference pattern: `AeEscalationListener`). Idempotency guard: skips if `ae.regulatorySubmissionStatus == FILED`.
+Observes `CaseLifecycleEvent` for `GoalReached` and `CaseCompleted` event types. `CaseLifecycleEvent` does **not** carry a case name or namespace — discrimination is entirely via DB lookup:
 
-On match:
-1. `AdverseEvent.find("regulatorySubmissionCaseId", event.caseId()).firstResult()` — null-safe
-2. `ae.regulatorySubmissionStatus = FILED`
-3. `ledgerWriter.writeCompletionEntry(ae)`
+```java
+public void onCaseLifecycleEvent(@ObservesAsync CaseLifecycleEvent event) {
+    if (!"GoalReached".equals(event.eventType()) && !"CaseCompleted".equals(event.eventType())) return;
+    markFiled(event.caseId(), event.tenancyId());
+}
 
-`@Transactional` boundary wraps steps 1–3. `@ObservesAsync` for non-blocking case lifecycle — same pattern as `AeEscalationListener`.
+@Transactional
+void markFiled(UUID caseId, String tenancyId) {
+    AdverseEvent ae = AdverseEvent.find("regulatorySubmissionCaseId", caseId).firstResult();
+    if (ae == null) return;  // not a regulatory submission case
+    if (ae.regulatorySubmissionStatus == RegulatorySubmissionStatus.FILED) return;  // idempotency
+    ae.regulatorySubmissionStatus = RegulatorySubmissionStatus.FILED;
+    ledgerWriter.writeFiledEntry(ae);
+}
+```
 
-### `RegulatorySubmissionLedgerWriter` additions
+### `RegulatorySubmissionBreachListener`
 
-Add `writeCompletionEntry(AdverseEvent ae)` and `writeBreachEntry(AdverseEvent ae, BreachType breachType)` following the existing `writeEntry()` pattern: create the appropriate `LedgerEntry` subclass, call `entry.attach(ClinicalComplianceSupplement)`, persist via `ledgerEntryRepository.save()`.
+Observes `WorkItemLifecycleEvent` for `ESCALATED` status. Discriminates via `callerRef` → `caseId` → `AdverseEvent.find("regulatorySubmissionCaseId", caseId)`:
+
+```java
+public void onWorkItemLifecycle(@ObservesAsync WorkItemLifecycleEvent event) {
+    if (event.status() != WorkItemStatus.ESCALATED) return;
+    UUID caseId = WorkItemCallerRef.parseCaseId(event.callerRef());
+    if (caseId == null) return;
+    markDeadlineMissed(caseId, event);
+}
+
+@Transactional
+void markDeadlineMissed(UUID caseId, WorkItemLifecycleEvent event) {
+    AdverseEvent ae = AdverseEvent.find("regulatorySubmissionCaseId", caseId).firstResult();
+    if (ae == null) return;
+    if (ae.regulatorySubmissionStatus == RegulatorySubmissionStatus.DEADLINE_MISSED) return;  // idempotency
+    ae.regulatorySubmissionStatus = RegulatorySubmissionStatus.DEADLINE_MISSED;
+    ledgerWriter.writeBreachEntry(ae, event.reason());
+}
+```
+
+`ESCALATED` status fires when `Exhausted` is returned by the policy (all escalation groups exhausted). The `WorkItemLifecycleAdapter` in the engine excludes ESCALATED from PlanItem transitions but the CDI event still fires from casehub-work — clinical observes it directly. Grade is available via `AdverseEvent.grade` for any grade-specific breach handling in the ledger entry.
+
+### Ledger — new subclasses
+
+`LedgerEntryType` has three values: `COMMAND`, `EVENT`, `ATTESTATION`. Both the obligation entry (existing) and the new completion/breach entries are `EVENT` — the enum cannot distinguish them. **New JPA subclasses are required.** The feedback's suggestion of "same subclass, different LedgerEntryType" is not implementable with the current enum.
+
+**`IndReportFiledLedgerEntry`** — `@DiscriminatorValue("IndReportFiled")`:
+- `aeId UUID NOT NULL`
+- `grade VARCHAR(20) NOT NULL`
+- `submittedAt TIMESTAMP NOT NULL` — actual filing time
+- `domainContentBytes()`: `aeId + grade + submittedAt.toString()`
+- V2024 migration: `ind_report_filed_ledger_entry` join table
+
+**`IndReportBreachLedgerEntry`** — `@DiscriminatorValue("IndReportBreach")`:
+- `aeId UUID NOT NULL`
+- `grade VARCHAR(20) NOT NULL`
+- `breachedAt TIMESTAMP NOT NULL`
+- `breachReason VARCHAR(255)`
+- `domainContentBytes()`: `aeId + grade + breachedAt.toString()`
+- V2025 migration: `ind_report_breach_ledger_entry` join table
+
+**Note on existing `RegulatorySubmissionLedgerEntry.filedAt`:** This column is named `filed_at` but currently set to `now` at obligation identification time — before any filing occurs. The column name implies the IND was filed at that moment, which is incorrect. This is a pre-existing semantic issue; the existing entry's `filedAt` means "obligation identified at." Not fixed in this issue but noted here to avoid confusion: `IndReportFiledLedgerEntry.submittedAt` is semantically correct (actual filing time), while the original `filed_at` is not.
+
+**`RegulatorySubmissionLedgerWriter` additions:**
+
+```java
+@Transactional(TxType.MANDATORY)
+public void writeFiledEntry(AdverseEvent ae) { ... }   // IndReportFiledLedgerEntry, submittedAt = now
+
+@Transactional(TxType.MANDATORY)
+public void writeBreachEntry(AdverseEvent ae, String reason) { ... }  // IndReportBreachLedgerEntry
+```
+
+Both attach `ClinicalComplianceSupplement` per the existing pattern.
 
 ### `RegulatorySubmissionCaseService`
 
-**No changes.** The service continues to call `regulatorySubmissionCaseHub.startCase(initialContext)` unchanged. The `indReportingDeadline` is already in the initial context; the YAML and engine handle the rest.
+**No changes.** The service continues to call `regulatorySubmissionCaseHub.startCase(initialContext)` unchanged. `indReportingDeadline` is already in the initial context; the YAML and engine handle the deadline. The service is not involved in breach or completion handling.
 
 ---
 
-## Feedback loop (in scope for this issue)
+## Flyway migrations required
 
-At AE entity level: `FILED`/`DEADLINE_MISSED` status transitions and ledger entries close the loop for audit. Trial-level case context signaling (informing the trial coordination case that all regulatory obligations are met) is a separate issue — the trial-level blackboard aggregation already detects safety signal thresholds, and the same pattern can aggregate regulatory compliance signals. Filed as a follow-up.
+Contrary to the initial spec's claim, **two new Flyway migrations are needed** for the new ledger subclass join tables:
+
+| Migration | Datasource | Table | Version |
+|-----------|-----------|-------|---------|
+| V2024 | qhorus | `ind_report_filed_ledger_entry` | new |
+| V2025 | qhorus | `ind_report_breach_ledger_entry` | new |
+
+No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR enum column) or the YAML/service changes.
 
 ---
 
 ## Files changed
 
-### casehub-engine (new GitHub issue: engine#N)
+### casehub-engine (new GitHub issue: engine#N — to be filed before implementation)
 
 | File | Change |
 |------|--------|
-| `api/src/main/java/io/casehub/api/engine/ExpressionEngine.java` | Add `default extractString()` |
-| `api/src/main/java/io/casehub/api/engine/ExpressionEngineRegistry.java` | Add `extractString()` |
-| `api/src/main/java/io/casehub/api/model/HumanTaskTarget.java` | Add `expiresAtExpression` field + builder |
-| `api/src/main/java/io/casehub/api/model/converter/CaseDefinitionYamlMapper.java` | Map new field |
-| `schema/src/main/resources/schema/CaseDefinition.yaml` | Add `expiresAtExpression` to `HumanTask` |
-| `schema/target/.../io/casehub/model/HumanTask.java` | Regenerated (add field manually pre-build) |
+| `api/src/main/java/io/casehub/api/engine/ExpressionEngine.java` | Add `default Optional<String> extractString(ExpressionEvaluator, CaseContext)` |
+| `api/src/main/java/io/casehub/api/engine/ExpressionEngineRegistry.java` | Add `Optional<String> extractString(ExpressionEvaluator, CaseContext)` |
+| `api/src/main/java/io/casehub/api/model/HumanTaskTarget.java` | Add `expiresAtExpression: ExpressionEvaluator` field + builder |
+| `api/src/main/java/io/casehub/api/model/converter/CaseDefinitionYamlMapper.java` | Map `expiresAtExpression` with load-time JQ validation |
+| `schema/src/main/resources/schema/CaseDefinition.yaml` | Add `expiresAtExpression: string` to `HumanTask` |
+| `schema/target/.../io/casehub/model/HumanTask.java` | Add `String expiresAtExpression` field (auto-regenerated) |
 | `runtime/src/main/java/io/casehub/engine/internal/engine/JQExpressionEngine.java` | Override `extractString()` |
-| `runtime/src/main/java/io/casehub/engine/internal/engine/DefaultExpressionEngineRegistry.java` | Implement `extractString()` |
-| `runtime/src/main/java/io/casehub/engine/internal/engine/handler/CaseContextChangedEventHandler.java` | Evaluate `expiresAtExpression`, set `expiresAtDeadline` |
-| `common/src/main/java/io/casehub/engine/common/internal/event/HumanTaskScheduleEvent.java` | Add `expiresAtDeadline` field |
-| `work-adapter/src/main/java/io/casehub/workadapter/HumanTaskScheduleHandler.java` | Fold `expiresAtDeadline` into `earliestOf` |
-| `work-adapter/src/test/java/io/casehub/workadapter/HumanTaskScheduleHandlerTest.java` | Add expression deadline tests |
+| `runtime/src/main/java/io/casehub/engine/internal/engine/DefaultExpressionEngineRegistry.java` | Implement `extractString()` dispatch |
+| `runtime/src/main/java/io/casehub/engine/internal/engine/handler/CaseContextChangedEventHandler.java` | `resolveExpiresAtDeadline()`, pass `expiresAtDeadline` in event |
+| `common/src/main/java/io/casehub/engine/common/internal/event/HumanTaskScheduleEvent.java` | Add `expiresAtDeadline: Instant` field |
+| `work-adapter/src/main/java/io/casehub/workadapter/HumanTaskScheduleHandler.java` | `createInline()` gains `expiresAtDeadline` param; template mode caps with `earliestOf` |
+| `work-adapter/src/test/java/io/casehub/workadapter/HumanTaskScheduleHandlerTest.java` | Tests for inline + template mode `expiresAtDeadline` behaviour |
 
 ### casehub-clinical (issue casehubio/clinical#83)
 
 | File | Change |
 |------|--------|
-| `runtime/src/main/resources/clinical/regulatory-submission.yaml` | capability → humanTask with `expiresAtExpression` |
-| `api/src/main/java/io/casehub/clinical/api/model/RegulatorySubmissionStatus.java` | Add `FILED`, `DEADLINE_MISSED` |
-| `runtime/src/main/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicy.java` | New SlaBreachPolicy |
-| `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListener.java` | New GoalReached observer |
-| `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionLedgerWriter.java` | Add completion/breach entry methods |
-| `runtime/src/test/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicyTest.java` | New unit test |
-| `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListenerTest.java` | New integration test |
+| `runtime/src/main/resources/clinical/regulatory-submission.yaml` | `capability` → `humanTask` with `expiresAtExpression` |
+| `api/src/main/java/io/casehub/clinical/api/model/RegulatorySubmissionStatus.java` | Add `DEADLINE_MISSED` only (FILED exists) |
+| `runtime/src/main/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicy.java` | New — pure SlaBreachPolicy, stateless two-tier, 48h window |
+| `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListener.java` | New — GoalReached/CaseCompleted observer, DB discriminates |
+| `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionBreachListener.java` | New — WorkItemLifecycleEvent(ESCALATED) observer |
+| `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionLedgerWriter.java` | Add `writeFiledEntry()`, `writeBreachEntry()` |
+| `runtime/src/main/java/io/casehub/clinical/ledger/IndReportFiledLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportFiled")` |
+| `runtime/src/main/java/io/casehub/clinical/ledger/IndReportBreachLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportBreach")` |
+| `runtime/src/main/resources/db/migration/qhorus/V2024__ind_report_filed_ledger_entry.sql` | New join table |
+| `runtime/src/main/resources/db/migration/qhorus/V2025__ind_report_breach_ledger_entry.sql` | New join table |
+| `runtime/src/test/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicyTest.java` | New unit tests |
+| `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListenerTest.java` | New integration tests |
+| `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionBreachListenerTest.java` | New integration tests |
 
 ---
 
 ## Testing strategy
 
-**Engine unit tests (`HumanTaskScheduleHandlerTest`):**
-- WorkItem `expiresAt` is set to `expiresAtDeadline` when `expiresAtExpression` evaluates correctly
-- `expiresAtDeadline` takes precedence over `expiresIn` when earlier
-- `caseBudgetDeadline` takes precedence when earlier than `expiresAtDeadline`
-- Null result when expression evaluation fails — handler continues without deadline
+### Engine
 
-**Engine unit tests (`JQExpressionEngineTest`):**
-- `extractString()` returns correct string from JQ output
-- `extractString()` returns empty on non-text JQ output
+**`HumanTaskScheduleHandlerTest`:**
+- `expiresAtDeadline` in event → WorkItem `expiresAt` set to that value
+- `expiresAtDeadline` earlier than `expiresIn`-derived deadline → `expiresAtDeadline` wins
+- `caseBudgetDeadline` earlier than `expiresAtDeadline` → budget wins
+- All three set → earliest wins
+- `expiresAtDeadline = null` → falls back to existing behaviour
+- Template mode: `expiresAtDeadline` caps template's `expiresAt` when later; preserved when template's is earlier
 
-**Clinical unit tests (`ClinicalIndReportingBreachPolicyTest`):**
-- Returns `Chained` for non-regulatory WorkItems
-- Grade 5 breach: escalates to regulatory-leadership with 24h extension
-- Grade 3/4 breach: escalates with 48h extension
-- Exhaustion returns `Exhausted` with correct message
+**`JQExpressionEngineTest`:**
+- `extractString()` returns ISO-8601 string from context field
+- Non-text JQ output → `Optional.empty()`
+- Null/blank evaluator → `Optional.empty()`
 
-**Clinical integration tests (`RegulatorySubmissionCompletedListenerTest`):**
-- GoalReached for regulatory-submission case: `ae.regulatorySubmissionStatus` → `FILED`
-- Idempotency: double GoalReached does not duplicate ledger entry
-- GoalReached for unrelated case: AE status unchanged
+### Clinical
 
-**End-to-end (existing `RegulatorySubmissionCaseServiceTest`):**
-- All existing tests pass unchanged — service API is unmodified
+**`ClinicalIndReportingBreachPolicyTest` (unit):**
+- Regulatory-affairs WorkItem (first breach): `EscalateTo("regulatory-leadership", PT48H)`
+- Regulatory-leadership WorkItem (second breach): `Exhausted`
+- Non-regulatory WorkItem: `Fail("no-sla-breach-policy-configured")`
+
+**`RegulatorySubmissionCompletedListenerTest` (integration, `@QuarkusTest`):**
+- GoalReached for regulatory-submission case → `ae.regulatorySubmissionStatus = FILED`, ledger entry written
+- CaseCompleted → same result
+- GoalReached for unrelated caseId → AE status unchanged
+- Double GoalReached → idempotency guard, second call is no-op
+
+**`RegulatorySubmissionBreachListenerTest` (integration, `@QuarkusTest`):**
+- ESCALATED event with regulatory-submission `callerRef` → `ae.regulatorySubmissionStatus = DEADLINE_MISSED`, breach ledger entry written
+- ESCALATED event with non-regulatory `callerRef` → no AE state change
+- Duplicate ESCALATED event → idempotency guard, second call is no-op
+- Non-ESCALATED status events → ignored
+
+**Existing `RegulatorySubmissionCaseServiceTest`:** All existing tests pass unchanged — service API is unmodified.
