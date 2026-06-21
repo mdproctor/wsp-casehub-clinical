@@ -184,7 +184,7 @@ The `goals` and `completion` sections are unchanged: `submission-complete: .subm
 
 ### `ClinicalIndReportingBreachPolicy`
 
-**CDI wiring:** `@ApplicationScoped` (no `@DefaultBean`). This displaces `NoOpSlaBreachPolicy @DefaultBean` — `ExpiryLifecycleService` injects `@Inject SlaBreachPolicy slaBreachPolicy` as a singular point; exactly one non-default bean resolves. The pattern is identical to `SusarCriteriaEvaluator` displacing its default.
+**CDI wiring:** `@ApplicationScoped` (no `@DefaultBean`). `ExpiryLifecycleService` injects `@Inject SlaBreachPolicy slaBreachPolicy` as a singular point — exactly one non-default bean resolves, displacing `NoOpSlaBreachPolicy @DefaultBean`.
 
 Implements `SlaBreachPolicy`. The policy is **pure** — makes a decision and returns, no side effects, no CDI service calls, no DB queries.
 
@@ -242,18 +242,18 @@ void markFiled(UUID caseId) {
 Observes `WorkItemLifecycleEvent` for `ESCALATED` status. Discriminates via `callerRef` → `caseId` → `AdverseEvent.find("regulatorySubmissionCaseId", caseId)`.
 
 **API constraints established from source inspection:**
-- `WorkItemLifecycleEvent` has no `callerRef()` method. The embedded `WorkItem` entity is accessible via `(WorkItem) event.source()` — null for wire-reconstructed events (guard required).
+- `WorkItemLifecycleEvent` has no `callerRef()` method. The embedded `WorkItem` entity is accessible via `event.source()` — null for wire-reconstructed events.
 - `WorkItemLifecycleEvent.detail()` is always `null` for `ESCALATED` events: `ExpiryLifecycleService.fireLifecycleEvent()` calls `WorkItemLifecycleEvent.of(event, item, "system", null)` (hardcoded null detail). The `Exhausted(reason)` string goes to the audit log only, not to the lifecycle event.
-- `WorkItemCallerRef` does not exist — only `PlanItemCallerRef` in the engine's work-adapter. Adding `static UUID parseCaseId(String callerRef)` to `PlanItemCallerRef` is the correct engine change (format defined there; duplication in clinical would be a workaround).
+- `CallerRef.parse(String)` already exists in `io.casehub.workadapter` — a sealed interface with `PlanItemCallerRef` and `GateCallerRef` subtypes. `CallerRef.caseId()` extracts the UUID from either. **No engine addition is needed.** This is the same API used by `IrbDecisionListener` (line 78: `CallerRef ref = CallerRef.parse(workItem.callerRef)`).
+- Use `instanceof` pattern matching for `event.source()` — matches `IrbDecisionListener` pattern, null-safe, prevents `ClassCastException` if the contract changes.
 
 ```java
 public void onWorkItemLifecycle(@ObservesAsync WorkItemLifecycleEvent event) {
     if (event.status() != WorkItemStatus.ESCALATED) return;
-    WorkItem workItem = (WorkItem) event.source();
-    if (workItem == null || workItem.callerRef == null) return;
-    UUID caseId = PlanItemCallerRef.parseCaseId(workItem.callerRef);  // engine addition
-    if (caseId == null) return;
-    markDeadlineMissed(caseId);
+    if (!(event.source() instanceof WorkItem workItem)) return;
+    CallerRef ref = CallerRef.parse(workItem.callerRef);
+    if (ref == null) return;
+    markDeadlineMissed(ref.caseId());
 }
 
 @Transactional
@@ -346,7 +346,6 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 | `runtime/src/main/java/io/casehub/engine/internal/engine/DefaultExpressionEngineRegistry.java` | Implement `extractString()` dispatch |
 | `runtime/src/main/java/io/casehub/engine/internal/engine/handler/CaseContextChangedEventHandler.java` | `resolveExpiresAtDeadline()`, pass `expiresAtDeadline` in event |
 | `common/src/main/java/io/casehub/engine/common/internal/event/HumanTaskScheduleEvent.java` | Add `expiresAtDeadline: Instant` field |
-| `work-adapter/src/main/java/io/casehub/workadapter/PlanItemCallerRef.java` | Add `static UUID parseCaseId(String callerRef)` |
 | `work-adapter/src/main/java/io/casehub/workadapter/HumanTaskScheduleHandler.java` | `createInline()` gains `expiresAtDeadline` param; template mode caps with `earliestOf` |
 | `work-adapter/src/test/java/io/casehub/workadapter/HumanTaskScheduleHandlerTest.java` | Tests for inline + template mode `expiresAtDeadline` behaviour |
 
@@ -368,6 +367,7 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 | `runtime/src/test/java/io/casehub/clinical/service/ClinicalIndReportingBreachPolicyTest.java` | New unit tests |
 | `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListenerTest.java` | New integration tests |
 | `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionBreachListenerTest.java` | New integration tests |
+| `runtime/src/test/java/io/casehub/clinical/service/RegulatorySubmissionDeadlineLifecycleTest.java` | End-to-end invariant: `WorkItem.expiresAt == ae.reportedAt + window` |
 
 ---
 
@@ -386,14 +386,10 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 **`JQExpressionEngineTest`:**
 - `extractString()` returns ISO-8601 string from WORKING panel context field
 - JQ evaluation failure → `Optional.empty()` + WARN (no IndexOutOfBoundsException)
-- Empty output (missing field → JQ null) → `Optional.empty()` (no crash, no WARN)
+- Field absent in context → JQ evaluates to `null` (one NullNode output, `vr.output().isEmpty()` is false) → `isTextual()` false → `Optional.empty()`, no WARN
+- Expression produces no output at all (e.g. `empty`) → `vr.output().isEmpty()` true → `Optional.empty()`, no WARN
 - Non-text JQ output (number, boolean) → `Optional.empty()`
 - Null/blank evaluator → `Optional.empty()`
-
-**`PlanItemCallerRefTest`:**
-- Valid `case:{UUID}/pi:{id}` → returns correct `UUID`
-- Non-engine callerRef (no `case:` prefix) → returns `null`
-- `null` input → returns `null`
 
 ### Clinical
 
@@ -415,5 +411,15 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 - ESCALATED event when AE is already FILED → idempotency guard protects against overwrite
 - Non-ESCALATED status events → ignored
 - Wire-reconstructed event (`event.source() == null`) → no AE state change
+
+**`RegulatorySubmissionDeadlineLifecycleTest` (integration, `@QuarkusTest`, engine on classpath, no `@InjectMock` on CaseHub):**
+
+This is the critical invariant test — verifies the full data path: `ae.reportedAt + indReportingWindow(grade) → case context → JQ expression (.indReportingDeadline) → HumanTaskScheduleEvent.expiresAtDeadline → WorkItem.expiresAt`. Without it, the expression could be wired incorrectly (wrong field name, wrong format) and no other test would catch it.
+
+- Persist Grade 3 unexpected AE with `reportedAt = Instant.parse("2026-07-01T10:00:00Z")`
+- Fire `AdverseEventReportedEvent` via `RegulatorySubmissionCaseService.onAdverseEventReported()`
+- Wait for the regulatory submission WorkItem to appear in `WorkItemStore` (filter by `callerRef` prefix `case:` + `candidateGroups` containing `regulatory-affairs`)
+- Assert `workItem.expiresAt == Instant.parse("2026-07-16T10:00:00Z")` (reportedAt + 15 days, Grade 3)
+- Repeat for Grade 4: `reportedAt + 7 days`
 
 **Existing `RegulatorySubmissionCaseServiceTest`:** All existing tests pass unchanged — service API is unmodified.
