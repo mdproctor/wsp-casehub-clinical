@@ -1,0 +1,9 @@
+branch: issue-83-ind-deadline-workitem
+project-sha: 6de6edd4ee1f61bcdff4fe684f5244d9f1fff0fc
+date: 2026-06-21
+issue: 83
+issue-repo: casehubio/clinical
+covers: 83
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
