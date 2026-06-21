@@ -36,13 +36,28 @@ default Optional<String> extractString(ExpressionEvaluator evaluator, CaseContex
 
 `ExpressionEngineRegistry` gains the same dispatch method. `DefaultExpressionEngineRegistry` implements it: find the matching engine by type, call `engine.extractString()`, catch `UnsupportedOperationException` (engine doesn't override the default), log WARN, return `Optional.empty()`. The distinction between "no engine registered" (throw `IllegalArgumentException` — programming error) and "engine registered but doesn't support string extraction" (graceful `Optional.empty()` + WARN) is preserved.
 
-`JQExpressionEngine` overrides `extractString()`: evaluate via `jqEvaluator.eval()`, then:
+`JQExpressionEngine` overrides `extractString()`. Evaluates against the **WORKING panel** — same as `evaluate()` and `evaluateInputMapping()`:
+
 ```java
-JsonNode result = vr.output().get(0);
-if (!result.isTextual()) return Optional.empty();  // NullNode.asText() returns "null" — avoid Instant.parse("null")
-return Optional.of(result.asText());
+@Override
+public Optional<String> extractString(ExpressionEvaluator evaluator, CaseContext context) {
+    final String expr = ((JQExpressionEvaluator) evaluator).expression();
+    if (expr == null || expr.isBlank()) return Optional.empty();
+    final ValidationResult vr = jqEvaluator.eval(expr, context.panel(ContextPanel.WORKING).asJsonNode());
+    // Guard matches evaluateInputMapping() pattern — empty output means field absent or JQ error
+    if (!vr.ok() || vr.output() == null || vr.output().isEmpty()) {
+        if (!vr.ok()) LOG.warnf("extractString JQ evaluation failed: %s", vr.error());
+        return Optional.empty();
+    }
+    final JsonNode result = vr.output().get(0);
+    // isTextual() guard: NullNode.asText() returns "null" (the string), NumericNode returns digits
+    // — both would reach Instant.parse() and throw without this guard
+    if (!result.isTextual()) return Optional.empty();
+    return Optional.of(result.asText());
+}
 ```
-`isTextual()` guard ensures only genuine string JQ output reaches `Instant.parse()`. A missing context field produces JQ `null` → `NullNode` → `isTextual()` false → `Optional.empty()` (no deadline, no spurious WARN). Non-text outputs (numbers, booleans) are equally clean.
+
+**WORKING panel contract:** `expiresAtExpression` JQ expressions evaluate against the WORKING panel, same as filter conditions. `indReportingDeadline` is in the WORKING panel (placed there by `prepareAndMark()` as part of the initial context map). A deadline in a non-WORKING panel would silently produce `Optional.empty()` — same silent-SLA-gap that load-time JQ validation was added to prevent for syntax errors.
 
 This is fully pluggable: any `ExpressionEngine` CDI bean can support value extraction by overriding `extractString()`. No `instanceof` anywhere.
 
@@ -169,6 +184,8 @@ The `goals` and `completion` sections are unchanged: `submission-complete: .subm
 
 ### `ClinicalIndReportingBreachPolicy`
 
+**CDI wiring:** `@ApplicationScoped` (no `@DefaultBean`). This displaces `NoOpSlaBreachPolicy @DefaultBean` — `ExpiryLifecycleService` injects `@Inject SlaBreachPolicy slaBreachPolicy` as a singular point; exactly one non-default bean resolves. The pattern is identical to `SusarCriteriaEvaluator` displacing its default.
+
 Implements `SlaBreachPolicy`. The policy is **pure** — makes a decision and returns, no side effects, no CDI service calls, no DB queries.
 
 **Discrimination:** `BreachedTask` exposes only `taskId`, `callerRef`, `title`, `candidateGroups`. There is no payload field; grade is inaccessible. Grade-specific escalation timing therefore cannot be expressed here. The policy uses `candidateGroups` to discriminate regulatory WorkItems:
@@ -258,16 +275,18 @@ void markDeadlineMissed(UUID caseId) {
 `LedgerEntryType` has three values: `COMMAND`, `EVENT`, `ATTESTATION`. Both the obligation entry (existing) and the new completion/breach entries are `EVENT` — the enum cannot distinguish them. **New JPA subclasses are required.** The feedback's suggestion of "same subclass, different LedgerEntryType" is not implementable with the current enum.
 
 **`IndReportFiledLedgerEntry`** — `@DiscriminatorValue("IndReportFiled")`:
+- `subjectId = ae.enrollmentId` (inherited from `LedgerEntry` — **must be set explicitly**; the Merkle chain groups by subjectId; null breaks enrollment audit chain continuity)
 - `aeId UUID NOT NULL`
 - `grade VARCHAR(20) NOT NULL`
-- `submittedAt TIMESTAMP NOT NULL` — actual filing time
+- `submittedAt TIMESTAMP NOT NULL` — actual filing time (`clock.instant()` at write time)
 - `domainContentBytes()`: `aeId + grade + submittedAt.toString()`
 - V2026 migration: `ind_report_filed_ledger_entry` join table
 
 **`IndReportBreachLedgerEntry`** — `@DiscriminatorValue("IndReportBreach")`:
+- `subjectId = ae.enrollmentId` (same Merkle chain grouping requirement as above)
 - `aeId UUID NOT NULL`
 - `grade VARCHAR(20) NOT NULL`
-- `breachedAt TIMESTAMP NOT NULL`
+- `breachedAt TIMESTAMP NOT NULL` — time of ESCALATED transition (`clock.instant()` at write time)
 - `breachReason VARCHAR(255)` — fixed string `"IND reporting deadline exhausted without submission"` (not taken from `WorkItemLifecycleEvent.detail()` which is always null for ESCALATED events; `ExpiryLifecycleService` hardcodes `null` as the detail in `fireLifecycleEvent()`)
 - `domainContentBytes()`: `aeId + grade + breachedAt.toString()`
 - V2027 migration: `ind_report_breach_ledger_entry` join table
@@ -284,7 +303,11 @@ public void writeFiledEntry(AdverseEvent ae) { ... }   // IndReportFiledLedgerEn
 public void writeBreachEntry(AdverseEvent ae) { ... }  // IndReportBreachLedgerEntry, breachReason = fixed string
 ```
 
-Both attach `ClinicalComplianceSupplement` per the existing pattern.
+**ComplianceSupplement factory methods:**
+- `writeFiledEntry()` attaches `ClinicalComplianceSupplement.regulatorySubmission(ae.grade)` — same regulatory obligation, same algorithm (the case service that started the obligation)
+- `writeBreachEntry()` attaches a new `ClinicalComplianceSupplement.regulatorySubmissionBreach(ae.grade)` factory method with `algorithmRef = "ClinicalIndReportingBreachPolicy — IND deadline exhausted"` and the same grade-specific 21 CFR `planRef` as `regulatorySubmission()`. The actor is different (the breach policy and expiry service, not the submission case service); the supplement must reflect that.
+
+Both set `subjectId = ae.enrollmentId` and call `nextSequenceNumber(ae.enrollmentId, "default")` — same as the existing `writeEntry()`.
 
 ### `RegulatorySubmissionCaseService`
 
@@ -337,6 +360,7 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 | `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionCompletedListener.java` | New — GoalReached/CaseCompleted observer, DB discriminates |
 | `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionBreachListener.java` | New — WorkItemLifecycleEvent(ESCALATED) observer |
 | `runtime/src/main/java/io/casehub/clinical/service/RegulatorySubmissionLedgerWriter.java` | Add `writeFiledEntry()`, `writeBreachEntry()` |
+| `runtime/src/main/java/io/casehub/clinical/service/ClinicalComplianceSupplement.java` | Add `regulatorySubmissionBreach(CtcaeGrade)` factory method |
 | `runtime/src/main/java/io/casehub/clinical/ledger/IndReportFiledLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportFiled")` |
 | `runtime/src/main/java/io/casehub/clinical/ledger/IndReportBreachLedgerEntry.java` | New JPA subclass, `@DiscriminatorValue("IndReportBreach")` |
 | `runtime/src/main/resources/db/migration/qhorus/V2026__ind_report_filed_ledger_entry.sql` | New join table (V2024/V2025 taken by Layer 9) |
@@ -360,9 +384,16 @@ No migration is needed for `RegulatorySubmissionStatus.DEADLINE_MISSED` (VARCHAR
 - Template mode: `expiresAtDeadline` caps template's `expiresAt` when later; preserved when template's is earlier
 
 **`JQExpressionEngineTest`:**
-- `extractString()` returns ISO-8601 string from context field
-- Non-text JQ output → `Optional.empty()`
+- `extractString()` returns ISO-8601 string from WORKING panel context field
+- JQ evaluation failure → `Optional.empty()` + WARN (no IndexOutOfBoundsException)
+- Empty output (missing field → JQ null) → `Optional.empty()` (no crash, no WARN)
+- Non-text JQ output (number, boolean) → `Optional.empty()`
 - Null/blank evaluator → `Optional.empty()`
+
+**`PlanItemCallerRefTest`:**
+- Valid `case:{UUID}/pi:{id}` → returns correct `UUID`
+- Non-engine callerRef (no `case:` prefix) → returns `null`
+- `null` input → returns `null`
 
 ### Clinical
 
