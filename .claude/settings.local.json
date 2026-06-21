@@ -80,7 +80,8 @@
       "Skill(publish-blog)",
       "Bash(date -v +14d +%Y-%m-%d)",
       "Bash(xargs -I{} basename {})",
-      "Bash(mvn compile *)"
+      "Bash(mvn compile *)",
+      "Bash(curl -s https://raw.githubusercontent.com/casehubio/parent/main/docs/PLATFORM.md)"
     ]
   }
 }
