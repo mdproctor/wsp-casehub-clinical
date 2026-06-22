@@ -1,4 +1,5 @@
-# Branch Closed — issue-71-tenant-query-isolation
-**Date:** 2026-06-10
-**Issue:** #71
-**Covers:** 71
+# Branch Closed: issue-83-ind-deadline-workitem
+
+**Date:** 2026-06-22
+**Issues:** 83
+**Status:** merged to main
