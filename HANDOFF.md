@@ -1,34 +1,33 @@
-# Session Handover — 2026-06-19
+# Session Handover — 2026-06-22
 
 ## Last Session
 
-Epic 10 closed: 3-site showcase + ClinicalAgent comparison. Implemented eligibility screening (Site A — eligibility-screening.yaml, EligibilityScreeningCaseService, EligibilityScreeningLedgerWriter, V2024) and protocol amendment (Site C — ProtocolAmendmentAdvisor SPI stub, protocol-amendment.yaml, ProtocolAmendmentListener, V2025). ThreeSiteShowcaseTest (§7.4 narrative) and docs/comparison/clinicalagent.md delivered. Code review surfaced three significant fixes: trial-existence check on POST /amendments, re-screen guard (409) on POST /screen, and entity-outside-@Transactional in EligibilityScreeningCaseService. Full build passes with ThreeSiteShowcaseTest excluded (engine race condition: clinical#87).
+clinical#83 closed: IND reporting deadline enforcement (Layer 10). Engine SPI extension (`ExpressionEngine.extractString()`, `HumanTaskTarget.expiresAtExpression`) enables absolute deadline enforcement in YAML humanTask bindings. `regulatory-submission.yaml` changed from capability to humanTask with `expiresAtExpression: ".indReportingDeadline"`. Clinical compliance layer: `ClinicalIndReportingBreachPolicy` (stateless two-tier, 48h escalation), `RegulatorySubmissionCompleted/BreachListener` (FILED/DEADLINE_MISSED transitions), `IndReportFiled/BreachLedgerEntry` + V2026/V2027 migrations. End-to-end invariant test confirms `WorkItem.expiresAt == ae.reportedAt + window` exactly. Six spec review rounds before implementation caught real bugs each time. ADR-0007 filed. Blog entry written. 431 tests green.
 
 ## Immediate Next Step
 
-Choose next issue to work on. Candidates: #83 (IND reporting deadline enforced as WorkItem claimDeadline), #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands).
-
-*Updated: work#268, parent#287 closed — removed from backlog.*
+Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy — blocked: engine#101), #87 (engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest isolation — blocked: engine team).
 
 ## What's Left
 
-- `casehubio/parent#269` — sync `casehub-clinical.md` Layer 7+8+9 description (was tracked via parent#287, now closed) · S · Low
-- `casehubio/clinical#86` — wire ProtocolAmendmentAdvisor to LlmPlanningStrategy when engine#101 lands · M · High (blocked: engine#101)
-- `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() API for ThreeSiteShowcaseTest isolation · S · Med (blocked: engine team)
-- `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — out of scope for #10, deferred
+- `casehubio/parent#296` — sync casehub-engine.md for engine#549 SPI · S · Low
+- `casehubio/parent#297` — sync casehub-clinical.md Layer 10 · S · Low
+- `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
+- `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest · S · Med (blocked: engine team)
+- `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #83 | IND reporting deadline enforced as WorkItem claimDeadline | M | Med | Needs regulatory-submission.yaml humanTask binding change |
-| #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 (open) |
+| #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
+| #87 | engine TestCaseInstanceRepository.clear() for showcase isolation | S | Med | Blocked: engine team |
 
 ## References
 
-- Blog: `blog/2026-06-18-mdp01-what-the-showcase-asked.md`
-- Spec: `specs/2026-06-18-showcase-clinicalagent-design.md`
-- Comparison: `docs/comparison/clinicalagent.md` (project repo)
-- LAYER-LOG: Layer 9 (Showcase) entry added
-- ARC42STORIES.MD: Status updated to "Layers 1–9 complete"
-- Upstream issues: work#268, parent#287, clinical#86, clinical#87
+- Blog: `blog/2026-06-22-mdp01-what-seven-days-actually-means.md`
+- Spec: `specs/2026-06-21-ind-deadline-enforcement-design.md`
+- ADR: `docs/adr/0007-expires-at-expression-for-absolute-humantask-deadlines.md` (project)
+- Engine branch: `issue-549-expires-at-expression` on casehub-engine (committed, not merged)
+- LAYER-LOG: Layer 10 entry added
+- ARC42STORIES.MD: Layers 1–10 complete
