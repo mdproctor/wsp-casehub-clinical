@@ -292,7 +292,7 @@ Background services deliberately do NOT inject `CurrentPrincipal` (documented in
 All test classes making HTTP calls (via RestAssured) get:
 
 ```java
-@TestSecurity(username = "test-actor",
+@TestSecurity(user = "test-actor",
               roles = {ClinicalGroups.SPONSOR, ClinicalGroups.INVESTIGATOR, ClinicalGroups.COORDINATOR})
 ```
 
