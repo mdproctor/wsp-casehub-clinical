@@ -133,21 +133,28 @@ Exclude `QhorusInboundCurrentPrincipal` from production. `OidcCurrentPrincipal` 
 
 ---
 
-## Security Posture — Deny Unannotated Endpoints
+## Security Posture — Deny Unannotated Members
 
-`@RolesAllowed` annotations alone do not close the security boundary: any endpoint added without an annotation fails open. The correct Quarkus mechanism is the JAX-RS security interceptor property, not HTTP permission policies.
+`@RolesAllowed` annotations alone do not close the security boundary: any method added to a resource class without a security annotation fails open. A build-time backstop ensures missing annotations fail closed.
 
 **Do NOT use `quarkus.http.auth.permission.*.policy=deny`** — HTTP permission policies operate at the Vert.x filter layer, before JAX-RS routing and before CDI security interceptors. A `deny` policy on `/*` rejects all requests regardless of authentication status, making `@RolesAllowed` unreachable dead code. The application does not work. It is also not suppressed by `quarkus.security.auth.enabled-in-dev-mode=false` (which only governs the CDI authorization layer), so dev mode would also be completely broken.
 
 Add to production `application.properties`:
 
 ```properties
-# Deny JAX-RS endpoints that have no security annotation (@RolesAllowed, @PermitAll, @DenyAll).
-# Operates inside the JAX-RS container after authentication — @RolesAllowed remains fully functional.
-# Suppressed in dev mode by quarkus.security.auth.enabled-in-dev-mode=false (same authorization
-# controller layer). Health/metrics on /q/* are served by Quarkus management and not affected.
-quarkus.security.jaxrs.deny-unannotated-endpoints=true
+# When a CDI bean class has at least one method with a security annotation (@RolesAllowed,
+# @PermitAll, @DenyAll), any unannotated public method in the same class is denied.
+# Mechanism: Quarkus SecurityProcessor adds @DenyAll at build time via DenyUnannotatedPredicate.
+# Suppressed in dev mode by quarkus.security.auth.enabled-in-dev-mode=false (same CDI
+# authorization controller layer). Health/metrics on /q/* are Quarkus-managed and not affected.
+quarkus.security.deny-unannotated-members=true
 ```
+
+**Scope of protection:** `DenyUnannotatedPredicate` (verified from bytecode: `quarkus-security-deployment-3.32.2.jar`) returns `true` when: the class itself has no class-level security annotation AND at least one method in the class has a security annotation. This means:
+- Any unannotated method added to an existing resource class (which already has `@RolesAllowed` methods) is **denied** — this is the most likely mistake and it is caught.
+- A brand-new resource class added with **zero** security annotations anywhere is **not covered** — `DenyUnannotatedPredicate` returns `false` for it (no annotated methods → not selected).
+
+The narrower protection is still the right default — forgetting `@RolesAllowed` on a new method to an existing resource is far more likely than standing up an entirely new class with no annotations. But the spec states the actual guarantee, not an overstated one.
 
 ---
 
@@ -296,7 +303,7 @@ Full access — no existing test breaks. Non-HTTP tests (unit, CDI observers cal
 Dedicated test class for access control invariants:
 
 **MONITOR (safety-monitor) — zero write access:**
-- `POST` to any endpoint → 403
+- `POST` or `PATCH` to any write endpoint → 403
 
 **COORDINATOR — excluded from governance and trial management:**
 - `POST /trials` → 403
@@ -342,9 +349,9 @@ Dedicated test class for access control invariants:
 |------|--------|
 | `api/src/main/java/io/casehub/clinical/api/ClinicalGroups.java` | New — group string constants |
 | `runtime/pom.xml` | Add `casehub-platform-oidc` (compile), `quarkus-test-security` (test) |
-| `runtime/src/main/resources/application.properties` | OIDC config, `deny-unannotated-endpoints=true`, updated `exclude-types` with documented removals |
+| `runtime/src/main/resources/application.properties` | OIDC config, `deny-unannotated-members=true`, updated `exclude-types` with documented removals |
 | `runtime/src/test/resources/application.properties` | OIDC test config |
-| `runtime/src/main/java/.../MissingTenancyClaimExceptionMapper.java` | New — maps `MissingTenancyClaimException` (from platform#111) to 400; blocked on platform#111 |
+| ~~`MissingTenancyClaimExceptionMapper.java`~~ | **Not a clinical#88 deliverable** — blocked on platform#111 shipping `MissingTenancyClaimException`. Tracked: casehubio/clinical#89 |
 | `runtime/src/main/java/.../resource/TrialResource.java` | `@RolesAllowed` on 4 methods |
 | `runtime/src/main/java/.../resource/SiteResource.java` | `@RolesAllowed` on 2 methods |
 | `runtime/src/main/java/.../resource/PatientResource.java` | `@RolesAllowed` on 9 methods |
@@ -352,10 +359,11 @@ Dedicated test class for access control invariants:
 | `runtime/src/main/java/.../resource/ProtocolAmendmentResource.java` | `@RolesAllowed` on 2 methods |
 | Existing `*Test.java` HTTP-calling tests | Add `@TestSecurity` |
 | `runtime/src/test/java/.../RbacBoundaryTest.java` | New — access control boundary tests (HTTP) |
-| `runtime/src/test/java/.../MissingTenancyClaimExceptionMapperTest.java` | New — unit test for mapper (no Quarkus CDI needed) |
+| ~~`MissingTenancyClaimExceptionMapperTest.java`~~ | **Not a clinical#88 deliverable** — part of casehubio/clinical#89 |
 
 ## Cross-repo
 
 | Action | Issue |
 |--------|-------|
 | Filed: `OidcCurrentPrincipal` needs `@Alternative @Priority(100)` + `MissingTenancyClaimException` | casehubio/platform#111 |
+| Filed: `MissingTenancyClaimExceptionMapper` follow-up (blocked on platform#111) | casehubio/clinical#89 |
