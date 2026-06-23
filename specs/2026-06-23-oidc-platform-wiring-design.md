@@ -133,48 +133,59 @@ Exclude `QhorusInboundCurrentPrincipal` from production. `OidcCurrentPrincipal` 
 
 ---
 
-## Security Posture — Global Deny Policy
+## Security Posture — Deny Unannotated Endpoints
 
-`@RolesAllowed` annotations alone do not close the security boundary: any endpoint added without an annotation fails open (unauthenticated access). A global deny policy ensures missing annotations fail closed instead.
+`@RolesAllowed` annotations alone do not close the security boundary: any endpoint added without an annotation fails open. The correct Quarkus mechanism is the JAX-RS security interceptor property, not HTTP permission policies.
+
+**Do NOT use `quarkus.http.auth.permission.*.policy=deny`** — HTTP permission policies operate at the Vert.x filter layer, before JAX-RS routing and before CDI security interceptors. A `deny` policy on `/*` rejects all requests regardless of authentication status, making `@RolesAllowed` unreachable dead code. The application does not work. It is also not suppressed by `quarkus.security.auth.enabled-in-dev-mode=false` (which only governs the CDI authorization layer), so dev mode would also be completely broken.
 
 Add to production `application.properties`:
 
 ```properties
-# Health/metrics exempt — must be accessible to load balancer health probes
-quarkus.http.auth.permission.health.paths=/q/*
-quarkus.http.auth.permission.health.policy=permit
-# Catch-all deny — any endpoint without an explicit @RolesAllowed returns 403
-# (not 200). This makes missing annotations fail closed.
-quarkus.http.auth.permission.default.paths=/*
-quarkus.http.auth.permission.default.policy=deny
+# Deny JAX-RS endpoints that have no security annotation (@RolesAllowed, @PermitAll, @DenyAll).
+# Operates inside the JAX-RS container after authentication — @RolesAllowed remains fully functional.
+# Suppressed in dev mode by quarkus.security.auth.enabled-in-dev-mode=false (same authorization
+# controller layer). Health/metrics on /q/* are served by Quarkus management and not affected.
+quarkus.security.jaxrs.deny-unannotated-endpoints=true
 ```
 
 ---
 
 ## Missing `tenancyId` Claim — ExceptionMapper
 
-`OidcCurrentPrincipal.tenancyId()` throws `IllegalStateException` when the JWT lacks the `tenancyId` custom claim. JAX-RS propagates unhandled `RuntimeException` as 500. A correctly-signed token from a newly-configured provider that lacks the custom claim should produce a clear 400 (bad token configuration), not a 500 with a stack trace.
+`OidcCurrentPrincipal.tenancyId()` currently throws `IllegalStateException` when the JWT lacks the `tenancyId` custom claim (confirmed from source: `.orElseThrow(() -> new IllegalStateException("JWT missing required claim: tenancyId"))`). JAX-RS propagates unhandled `RuntimeException` as 500. A correctly-signed token from a newly-configured provider lacking the custom claim should produce a clear 400, not a 500 with a stack trace.
 
-Add to `runtime/`:
+**Do NOT implement `ExceptionMapper<IllegalStateException>` with string matching.** `IllegalStateException` is thrown by Quarkus internals and Hibernate in many unrelated places. String-matching on message text is fragile (message changes → mapper silently stops working). `throw e` inside `toResponse()` is implementation-defined at the JAX-RS boundary and a latent production reliability defect.
+
+The correct fix is part of **casehubio/platform#111**: `OidcCurrentPrincipal.tenancyId()` should throw `MissingTenancyClaimException extends RuntimeException` (defined in `casehub-platform-oidc`), and clinical provides a typed mapper:
 
 ```java
+// clinical runtime — MissingTenancyClaimExceptionMapper.java
+// Depends on MissingTenancyClaimException from casehub-platform-oidc (platform#111)
 @Provider
 public class MissingTenancyClaimExceptionMapper
-        implements ExceptionMapper<IllegalStateException> {
+        implements ExceptionMapper<MissingTenancyClaimException> {
     @Override
-    public Response toResponse(IllegalStateException e) {
-        if (e.getMessage() != null && e.getMessage().contains("tenancyId")) {
-            return Response.status(Response.Status.BAD_REQUEST)
-                .entity("{\"error\":\"JWT missing required claim: tenancyId\"}")
-                .type(MediaType.APPLICATION_JSON)
-                .build();
-        }
-        throw e; // re-throw unrelated IllegalStateExceptions
+    public Response toResponse(MissingTenancyClaimException e) {
+        return Response.status(Response.Status.BAD_REQUEST)
+            .entity("{\"error\":\"" + e.getMessage() + "\"}")
+            .type(MediaType.APPLICATION_JSON)
+            .build();
     }
 }
 ```
 
-Add corresponding test case to `RbacBoundaryTest`: `@TestSecurity` with username and roles but no `tenancyId` claim exercised via a request that hits a `findByIdForTenant` call — expects 400.
+No string matching. No re-throw ambiguity. Clinical's mapper cannot be implemented until platform#111 ships `MissingTenancyClaimException`.
+
+### Testing
+
+The mapper **cannot be tested via `@QuarkusTest` HTTP calls**. In all `@QuarkusTest` contexts, `FixedCurrentPrincipal` is the active CDI `CurrentPrincipal` via `selected-alternatives`. `OidcCurrentPrincipal.tenancyId()` is never invoked — `@TestSecurity` controls `SecurityIdentity` at the Quarkus security layer but `FixedCurrentPrincipal.tenancyId()` returns a fixed value without touching the JWT. The `MissingTenancyClaimException` is never thrown. An HTTP test would silently pass for the wrong reason.
+
+Two unit tests instead:
+
+1. **`OidcCurrentPrincipalTest`** — mock `SecurityIdentity` (non-anonymous) and `JsonWebToken` returning `Optional.empty()` for `tenancyId` claim. Verify `MissingTenancyClaimException` is thrown. (This test belongs in `casehub-platform-oidc` as part of platform#111.)
+
+2. **`MissingTenancyClaimExceptionMapperTest`** — construct the mapper directly, invoke `toResponse(new MissingTenancyClaimException())`, verify 400 status and JSON body. No Quarkus CDI needed.
 
 ---
 
@@ -312,7 +323,7 @@ Dedicated test class for access control invariants:
 - Any endpoint → 401
 
 **Missing tenancyId claim:**
-- Valid token with roles but missing `tenancyId` JWT claim → 400
+- Unit test only — see ExceptionMapper section. Not testable via HTTP in `@QuarkusTest` (FixedCurrentPrincipal intercepts CDI; OidcCurrentPrincipal.tenancyId() never called).
 
 ---
 
@@ -331,19 +342,20 @@ Dedicated test class for access control invariants:
 |------|--------|
 | `api/src/main/java/io/casehub/clinical/api/ClinicalGroups.java` | New — group string constants |
 | `runtime/pom.xml` | Add `casehub-platform-oidc` (compile), `quarkus-test-security` (test) |
-| `runtime/src/main/resources/application.properties` | OIDC config, global deny policy, updated `exclude-types` with documented removals |
+| `runtime/src/main/resources/application.properties` | OIDC config, `deny-unannotated-endpoints=true`, updated `exclude-types` with documented removals |
 | `runtime/src/test/resources/application.properties` | OIDC test config |
-| `runtime/src/main/java/.../MissingTenancyClaimExceptionMapper.java` | New — maps missing tenancyId claim to 400 |
+| `runtime/src/main/java/.../MissingTenancyClaimExceptionMapper.java` | New — maps `MissingTenancyClaimException` (from platform#111) to 400; blocked on platform#111 |
 | `runtime/src/main/java/.../resource/TrialResource.java` | `@RolesAllowed` on 4 methods |
 | `runtime/src/main/java/.../resource/SiteResource.java` | `@RolesAllowed` on 2 methods |
 | `runtime/src/main/java/.../resource/PatientResource.java` | `@RolesAllowed` on 9 methods |
 | `runtime/src/main/java/.../resource/DeviationResource.java` | `@RolesAllowed` on 2 methods |
 | `runtime/src/main/java/.../resource/ProtocolAmendmentResource.java` | `@RolesAllowed` on 2 methods |
 | Existing `*Test.java` HTTP-calling tests | Add `@TestSecurity` |
-| `runtime/src/test/java/.../RbacBoundaryTest.java` | New — access control boundary + tenancyId-missing test |
+| `runtime/src/test/java/.../RbacBoundaryTest.java` | New — access control boundary tests (HTTP) |
+| `runtime/src/test/java/.../MissingTenancyClaimExceptionMapperTest.java` | New — unit test for mapper (no Quarkus CDI needed) |
 
 ## Cross-repo
 
 | Action | Issue |
 |--------|-------|
-| Filed: `OidcCurrentPrincipal` needs `@Alternative @Priority(100)` | casehubio/platform#111 |
+| Filed: `OidcCurrentPrincipal` needs `@Alternative @Priority(100)` + `MissingTenancyClaimException` | casehubio/platform#111 |
