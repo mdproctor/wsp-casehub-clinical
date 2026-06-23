@@ -1,0 +1,9 @@
+branch: issue-88-wire-platform-oidc
+project-sha: c96c03c8798d7d2a0e66f6ae5d985fb05432cb04
+date: 2026-06-23
+issue: 88
+issue-repo: casehubio/clinical
+covers: 88
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
