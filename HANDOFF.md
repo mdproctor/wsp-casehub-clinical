@@ -14,7 +14,7 @@ Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to 
 
 - `casehubio/clinical#89` — MissingTenancyClaimExceptionMapper · S · Low (unblocked — platform#111 closed)
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
-- `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest · S · Med (blocked: engine team)
+- `casehubio/clinical#87` — CaseLifecycleEvent listeners hold JTA TX while .await()-ing reactive CaseInstanceRepository · S · Med (unblocked)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
 
 ## What's Next
@@ -23,7 +23,7 @@ Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to 
 |---|-------------|-------|------------|-------|
 | #79 | GDPR Art.17 erasure endpoint | M | Med | Unblocked — ConsentWithdrawalService exists, needs REST endpoint |
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
-| #87 | engine TestCaseInstanceRepository.clear() for showcase isolation | S | Med | Blocked: engine team |
+| #87 | CaseLifecycleEvent listeners hold JTA TX while .await()-ing reactive repo | S | Med | Unblocked — perf optimisation |
 
 ## References
 
