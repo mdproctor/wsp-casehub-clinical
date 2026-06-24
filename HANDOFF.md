@@ -1,3 +1,5 @@
+*Updated: parent#296, parent#297, platform#111 closed — removed from backlog.*
+
 # Session Handover — 2026-06-24
 
 ## Last Session
@@ -10,10 +12,7 @@ Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to 
 
 ## What's Left
 
-- `casehubio/parent#296` — sync casehub-engine.md for engine#549 SPI · S · Low
-- `casehubio/parent#297` — sync casehub-clinical.md Layer 10 · S · Low
-- `casehubio/clinical#89` — MissingTenancyClaimExceptionMapper · S · Low (blocked: platform#111)
-- `casehubio/platform#111` — OidcCurrentPrincipal @Alternative @Priority(100) + MissingTenancyClaimException · M · Med
+- `casehubio/clinical#89` — MissingTenancyClaimExceptionMapper · S · Low (unblocked — platform#111 closed)
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
 - `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest · S · Med (blocked: engine team)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
