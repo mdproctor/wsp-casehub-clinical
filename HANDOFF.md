@@ -1,17 +1,19 @@
-# Session Handover — 2026-06-22
+# Session Handover — 2026-06-24
 
 ## Last Session
 
-clinical#83 closed: IND reporting deadline enforcement (Layer 10). Engine SPI extension (`ExpressionEngine.extractString()`, `HumanTaskTarget.expiresAtExpression`) enables absolute deadline enforcement in YAML humanTask bindings. `regulatory-submission.yaml` changed from capability to humanTask with `expiresAtExpression: ".indReportingDeadline"`. Clinical compliance layer: `ClinicalIndReportingBreachPolicy` (stateless two-tier, 48h escalation), `RegulatorySubmissionCompleted/BreachListener` (FILED/DEADLINE_MISSED transitions), `IndReportFiled/BreachLedgerEntry` + V2026/V2027 migrations. End-to-end invariant test confirms `WorkItem.expiresAt == ae.reportedAt + window` exactly. Six spec review rounds before implementation caught real bugs each time. ADR-0007 filed. Blog entry written. 431 tests green.
+clinical#88 closed: wire casehub-platform-oidc. `OidcCurrentPrincipal` is now the sole active `CurrentPrincipal` — tenant identity from JWT, not X-Tenancy-ID header. `ClinicalGroups` (SPONSOR, INVESTIGATOR, COORDINATOR, MONITOR) in `api/`. `@RolesAllowed` on all 19 REST endpoints per GCP/FDA regulatory topology. `RbacBoundaryTest` with 27 boundary tests. `quarkus.security.deny-unannotated-members=true`. Four-round spec review caught three critical security bugs before any code was written. Filed casehubio/platform#111 (OidcCurrentPrincipal needs @Alternative @Priority(100)) and casehubio/clinical#89 (MissingTenancyClaimExceptionMapper — blocked on platform#111). Two protocols captured (PP-20260623-491bb3 RBAC topology, PP-20260623-b105bb risk gates severity-driven). Four garden entries submitted (GE-20260623-4613f4, GE-20260623-941ade, GE-20260623-5b192f, GE-20260623-18f8c0).
 
 ## Immediate Next Step
 
-Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy — blocked: engine#101), #87 (engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest isolation — blocked: engine team).
+Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to LlmPlanningStrategy — blocked: engine#101), #87 (engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest isolation — blocked: engine team), #79 (GDPR Art.17 erasure endpoint — unblocked, ~1 day).
 
 ## What's Left
 
 - `casehubio/parent#296` — sync casehub-engine.md for engine#549 SPI · S · Low
 - `casehubio/parent#297` — sync casehub-clinical.md Layer 10 · S · Low
+- `casehubio/clinical#89` — MissingTenancyClaimExceptionMapper · S · Low (blocked: platform#111)
+- `casehubio/platform#111` — OidcCurrentPrincipal @Alternative @Priority(100) + MissingTenancyClaimException · M · Med
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
 - `casehubio/clinical#87` — engine TestCaseInstanceRepository.clear() for ThreeSiteShowcaseTest · S · Med (blocked: engine team)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
@@ -20,14 +22,14 @@ Pick next issue. Candidates from backlog: #86 (wire ProtocolAmendmentAdvisor to 
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
+| #79 | GDPR Art.17 erasure endpoint | M | Med | Unblocked — ConsentWithdrawalService exists, needs REST endpoint |
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
 | #87 | engine TestCaseInstanceRepository.clear() for showcase isolation | S | Med | Blocked: engine team |
 
 ## References
 
-- Blog: `blog/2026-06-22-mdp01-what-seven-days-actually-means.md`
-- Spec: `specs/2026-06-21-ind-deadline-enforcement-design.md`
-- ADR: `docs/adr/0007-expires-at-expression-for-absolute-humantask-deadlines.md` (project)
-- Engine branch: `issue-549-expires-at-expression` on casehub-engine (committed, not merged)
-- LAYER-LOG: Layer 10 entry added
-- ARC42STORIES.MD: Layers 1–10 complete
+- Blog: `blog/2026-06-23-mdp01-the-spec-that-caught-three-bugs.md`
+- Spec: `docs/specs/2026-06-23-oidc-platform-wiring-design.md` (project)
+- Platform issue: casehubio/platform#111
+- Follow-up: casehubio/clinical#89
+- ARC42STORIES.MD: Layers 1–10 complete; auth wiring not a layer (cross-cutting)
