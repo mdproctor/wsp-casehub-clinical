@@ -3,6 +3,7 @@
 **Branch:** issue-89-tenancy-perf-gdpr
 **Covers:** casehubio/clinical#89, #87, #79
 **Date:** 2026-06-25
+**Revision:** 2 (post-review, 2026-06-25)
 
 ---
 
@@ -71,22 +72,23 @@ Remove `@Transactional` from `onCaseLifecycle()`.
 - `@Transactional(REQUIRES_NEW) public void applyRecommendation(UUID amendmentId, String recommendation)`
 - Loads `ProtocolAmendment.findById(amendmentId)`
 - Idempotency guard: `supervisorRecommendation != null` → return
-- Applies status/recommendation fields per the switch logic
-- Calls `ledgerWriter.writeResolutionEntry(amendment)` — participates in the same REQUIRES_NEW transaction
-- Entity state updates and ledger write commit atomically
+- Handles ALL recommendation branches in a single switch — including the `default` case
+- Known cases (PROCEED, HALT, REFER_TO_DSMB): applies status/recommendation, calls `ledgerWriter.writeResolutionEntry(amendment)`
+- Default case (unknown recommendation): sets `amendmentCaseStatus = FAILED`; does NOT set `supervisorRecommendation` (preserves redelivery); no ledger write
+- Entity state updates and ledger write commit atomically in the same REQUIRES_NEW transaction
 
-`ProtocolAmendmentLedgerWriter` — stays WITHOUT `@Transactional` on its methods. It participates in whatever transaction the caller provides. This is a deliberate design difference from `AeEscalationLedgerWriter`: the amendment entity writes and ledger write must be *atomic*, so they share a transaction. The AE design *intentionally separates* status from ledger (FDA gap handling).
+`ProtocolAmendmentLedgerWriter` — stays WITHOUT `@Transactional` on its methods. It participates in whatever transaction the caller provides. Design distinction from `AeEscalationLedgerWriter`: the amendment entity writes and ledger write must be *atomic* (shared TX), while the AE design *intentionally separates* status from ledger (FDA gap handling).
 
 #### Listener simplification
 
-After extracting write logic to the updater, `ProtocolAmendmentListener.onCaseLifecycle()` becomes:
+After extracting all write logic to the updater, `ProtocolAmendmentListener.onCaseLifecycle()` becomes:
 1. Filter by eventType (GoalReached/CaseCompleted)
 2. Reactive query for case instance (no TX held)
 3. Discriminate by `amendmentId` in context
-4. Extract `advisorRecommendation` from context
+4. Extract `advisorRecommendation` from context (null check → LOG.errorf, return)
 5. Call `statusUpdater.applyRecommendation(amendmentId, recommendation)`
 
-**`default` case (unknown recommendation):** stays in the listener, NOT in the updater. It deliberately does NOT set `supervisorRecommendation` (allowing redelivery) and only sets `amendmentCaseStatus = FAILED`. This is a direct Panache write that needs a transaction — wrap it in `QuarkusTransaction.requiringNew().run(...)` inline, since it's a single-field error-path write that doesn't warrant a separate service method.
+No switch logic in the listener. No transaction management. No QuarkusTransaction. Single responsibility: observe, extract, delegate.
 
 ### Test changes
 
@@ -111,6 +113,36 @@ Gaps:
 2. Foundation `ErasureReceiptLedgerEntry` not enabled (`casehub.ledger.erasure-receipt.enabled` defaults to `false`)
 3. Flyway path for ledger V1010 migration not in clinical's qhorus locations
 4. No traceability link between domain receipt (`ConsentWithdrawalLedgerEntry`) and foundation receipt (`ErasureReceiptLedgerEntry`)
+5. `ConsentWithdrawalService.withdraw()` uses exception for flow control — `ConsentAlreadyWithdrawnException` is a RuntimeException that poisons JTA transactions in batch callers
+
+### Design change: make withdraw() idempotent
+
+`ConsentAlreadyWithdrawnException` is a RuntimeException thrown by `withdraw()` when the enrollment is already withdrawn. This is exception-as-flow-control: "already withdrawn" is a completed operation, not an error. It also creates a JTA composition problem — when `withdraw()` participates in an outer transaction (REQUIRED propagation), the RuntimeException causes the Narayana interceptor to mark the outer TX as rollback-only before re-throwing, even if the caller catches it.
+
+**Fix:** Replace the exception with a return type.
+
+```java
+public enum WithdrawalResult { WITHDRAWN, ALREADY_WITHDRAWN }
+
+@Transactional
+public WithdrawalResult withdraw(UUID enrollmentId, String tenantId) {
+    PatientEnrollment enrollment = PatientEnrollment.find(...).firstResult();
+    if (enrollment == null) throw new PatientEnrollmentNotFoundException(enrollmentId);
+    if (enrollment.consentStatus == ConsentStatus.WITHDRAWN) {
+        return WithdrawalResult.ALREADY_WITHDRAWN;
+    }
+    // ... proceed with erasure
+    return WithdrawalResult.WITHDRAWN;
+}
+```
+
+Effects:
+- `PatientResource.withdrawConsent()` — checks result, returns 409 for `ALREADY_WITHDRAWN`
+- `GdprErasureService.erasePatient()` — skips `ALREADY_WITHDRAWN`, counts only `WITHDRAWN`
+- `ConsentAlreadyWithdrawnException` — deleted
+- `PatientEnrollmentNotFoundException` — stays (genuine error: invalid enrollment ID)
+- ARC42STORIES.MD line 1382 — update to reflect the new return type
+- `ConsentWithdrawalServiceTest` — update `withdraw_throws_on_already_withdrawn` to assert return value instead
 
 ### Config Changes
 
@@ -119,7 +151,7 @@ Gaps:
 casehub.ledger.erasure-receipt.enabled=true
 ```
 
-Add `classpath:db/ledger/migration` to qhorus Flyway locations:
+Add `classpath:db/ledger/migration` to qhorus Flyway locations (verified: `db/ledger/migration/V1010__erasure_receipt_entry.sql` exists in the casehub-ledger JAR):
 ```properties
 quarkus.flyway.qhorus.locations=classpath:db/migration,classpath:db/migration/qhorus,classpath:db/engine-ledger/migration,classpath:db/ledger/migration
 ```
@@ -128,7 +160,7 @@ quarkus.flyway.qhorus.locations=classpath:db/migration,classpath:db/migration/qh
 ```properties
 casehub.ledger.erasure-receipt.enabled=true
 ```
-No Flyway path change — `drop-and-create` handles table creation.
+No Flyway path change — `drop-and-create` handles table creation from JPA annotations.
 
 ### GdprErasureService
 
@@ -138,10 +170,12 @@ No Flyway path change — `drop-and-create` handles table creation.
 
 1. Find all non-withdrawn enrollments: `PatientEnrollment.find("patientId = ?1 AND tenantId = ?2 AND consentStatus != ?3", patientId, tenantId, ConsentStatus.WITHDRAWN).list()`
 2. If empty → throw `PatientNotFoundException(patientId)`
-3. For each enrollment: `consentWithdrawalService.withdraw(enrollment.id, tenantId)`
-4. Return count
+3. For each enrollment: call `consentWithdrawalService.withdraw(enrollment.id, tenantId)` — returns `WithdrawalResult`; skip `ALREADY_WITHDRAWN` (concurrent erasure handled naturally, no TX rollback)
+4. Return count of `WITHDRAWN` results
 
-Critical: step 1 completes before any withdrawal starts. After the first `withdraw()`, that enrollment's `patientId` becomes `"erased-<UUID>"`, but since we already have the full list, the lookup is not affected. All withdrawals participate in the outer XA transaction (REQUIRED propagation) — atomic commit.
+Critical ordering: step 1 completes before any withdrawal starts. After the first `withdraw()`, that enrollment's `patientId` becomes `"erased-<UUID>"`, but the full list is already loaded. All withdrawals participate in the outer XA transaction (REQUIRED propagation) — atomic commit.
+
+**404-on-retry semantics:** After a successful erasure, the patient's enrollments have pseudonymized `patientId` values. A retry with the original patientId will find no matching enrollments and return 404. This is by design — erased patients are unidentifiable. Documented in `PatientNotFoundException` Javadoc.
 
 ### GdprErasureResource
 
@@ -152,13 +186,13 @@ Critical: step 1 completes before any withdrawal starts. After the first `withdr
 **Endpoint:** `@DELETE @Path("/patients/{patientId}") @RolesAllowed({SPONSOR, COORDINATOR})`
 
 - 204 No Content on success (header `X-Enrollments-Erased: N`)
-- 404 if no non-withdrawn enrollments found
+- 404 if no non-withdrawn enrollments found (includes post-erasure retry — by design)
 
 **RBAC:** SPONSOR/COORDINATOR (cross-site authority). The per-enrollment `withdrawConsent` remains INVESTIGATOR (site-level).
 
 ### PatientNotFoundException
 
-`io.casehub.clinical.service.PatientNotFoundException` — extends `RuntimeException`, carries `patientId`. Follows `PatientEnrollmentNotFoundException` pattern.
+`io.casehub.clinical.service.PatientNotFoundException` — extends `RuntimeException`, carries `patientId`. Javadoc documents: "No active (non-withdrawn) enrollments found for this patientId. After a successful GDPR erasure, the original patientId is pseudonymized — retries with the original ID will receive this response. This is by design: erased patients are unidentifiable."
 
 ### receiptEntryId Traceability
 
@@ -168,7 +202,7 @@ Add to `ConsentWithdrawalLedgerEntry`:
 public UUID receiptEntryId;
 ```
 
-Migration: `V2023__consent_withdrawal_receipt_entry_id.sql` in `db/migration/qhorus/`:
+Migration: `V2028__consent_withdrawal_receipt_entry_id.sql` in `db/migration/qhorus/`:
 ```sql
 ALTER TABLE consent_withdrawal_ledger_entry ADD COLUMN receipt_entry_id UUID;
 ```
@@ -178,13 +212,13 @@ Update `ConsentWithdrawalService.withdraw()`:
 entry.receiptEntryId = erasureResult.receiptEntryId().orElse(null);
 ```
 
-Update `domainContentBytes()` to include `receiptEntryId`.
+**`domainContentBytes()` — NO CHANGE.** Per ARC42STORIES.MD (line 1399): only identity-determining content contributes to the Merkle hash. `receiptEntryId` is post-erasure metadata, same as `ledgerEntriesAffected` and `memoriesErased`. Adding it to `domainContentBytes()` would be architecturally incorrect.
 
 ### Test Plan
 
-- `GdprErasureServiceTest` — unit test with mocked `ConsentWithdrawalService`. Cases: single enrollment, multiple enrollments across sites/trials, no enrollments found.
+- `GdprErasureServiceTest` — unit test with mocked `ConsentWithdrawalService`. Cases: single enrollment, multiple enrollments across sites/trials, no enrollments found, concurrent erasure (some return ALREADY_WITHDRAWN).
 - `GdprErasureResourceTest` — `@QuarkusTest` + `@TestSecurity`. Cases: 204 success, 404 unknown patient, RBAC boundary (INVESTIGATOR denied, SPONSOR/COORDINATOR allowed).
-- `ConsentWithdrawalServiceTest` — add test verifying `receiptEntryId` is set when `erasure-receipt.enabled=true`.
+- `ConsentWithdrawalServiceTest` — update: assert `WithdrawalResult.ALREADY_WITHDRAWN` on double-withdraw (was: assert exception). Add test verifying `receiptEntryId` is set when `erasure-receipt.enabled=true`.
 
 ---
 
@@ -194,8 +228,17 @@ Update `domainContentBytes()` to include `receiptEntryId`.
 - Update "19 REST endpoints" count to 20 (new `GdprErasureResource`)
 - Document `classpath:db/ledger/migration` addition in Flyway migration structure
 - Note SPONSOR/COORDINATOR RBAC scope on erasure endpoint
+- Document `WithdrawalResult` return type change on `ConsentWithdrawalService.withdraw()`
+- Update ARC42STORIES.MD line 1382 to reflect new return type
 
-## Issues to File Before Implementation
+## Issues Filed
 
-1. `casehubio/platform`: "Provide MissingTenancyExceptionMapper from casehub-platform-oidc"
-2. `casehubio/engine`: "Enrich CaseLifecycleEvent with case context snapshot"
+1. `casehubio/platform#115`: provide MissingTenancyExceptionMapper from casehub-platform-oidc
+2. `casehubio/engine#571`: enrich CaseLifecycleEvent with case context snapshot
+
+## Revision History
+
+| Rev | Date | Changes |
+|-----|------|---------|
+| 1 | 2026-06-25 | Initial design |
+| 2 | 2026-06-25 | Post-review: §2 move default case into updater; §3 V2028 migration (was V2023); §3 make withdraw() idempotent via WithdrawalResult (replaces ConsentAlreadyWithdrawnException — JTA rollback fix); §3 document 404-on-retry semantics; §3 receiptEntryId excluded from domainContentBytes() per ARC42STORIES design decision |
