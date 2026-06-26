@@ -2,11 +2,11 @@
 
 ## Last Session
 
-Branch `issue-89-tenancy-perf-gdpr` closed: #89 MissingTenancyExceptionMapper (HTTP 400), #87 listener TX fix (remove @Transactional from 3 observers, REQUIRES_NEW on ledger writers, extract ProtocolAmendmentStatusUpdater), #79 GDPR Art.17 patient-scoped erasure (idempotent withdraw() with WithdrawalResult, erasure receipts enabled, GdprErasureResource at DELETE /api/gdpr/erasure/patients/{patientId}). Fixed pre-existing worker-api migration (engine#543). Garden entry GE-20260626-aa69fa (JTA REQUIRED + RuntimeException rollback gotcha). Filed platform#115 and engine#571.
+Branch `issue-92-s-xs-cleanup-batch` closed: #92 (worker-api migration already done — fixed one stale Javadoc @link), #91 (repository_dispatch trigger added to publish.yml), #90 (removed CurrentPrincipal exclude-types after verifying platform#111 shipped @Alternative @Priority(100) on OidcCurrentPrincipal from bytecode). CI now auto-rebuilds on upstream SNAPSHOT publishes.
 
 ## Immediate Next Step
 
-Pick next issue. Check open issues on casehubio/clinical.
+Pick next issue. Check open issues on casehubio/clinical. #86 (LlmPlanningStrategy) and #78 (CBR) are both blocked on foundation work.
 
 ## What's Left
 
@@ -14,16 +14,16 @@ Pick next issue. Check open issues on casehubio/clinical.
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
 - `casehubio/platform#115` — provide MissingTenancyExceptionMapper from casehub-platform-oidc · S · Low
 - `casehubio/engine#571` — enrich CaseLifecycleEvent with case context snapshot · M · Med
+- Pre-existing flaky tests: `ThreeSiteShowcaseTest`, `RegulatorySubmissionDeadlineLifecycleTest` (×2) — CaseInstance tenant mismatch in async paths
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
+| #78 | CBR over adverse event history | L | High | Blocked: engine#477, #478, neural-text#20, platform#87 |
 
 ## References
 
-- Blog: `blog/2026-06-26-mdp01-the-exception-that-rolls-back.md`
-- Spec: `docs/specs/2026-06-25-tenancy-perf-gdpr-design.md` (project)
-- Garden: GE-20260626-aa69fa (JTA rollback gotcha)
+- Blog: `blog/2026-06-26-mdp01-the-exception-that-rolls-back.md` (previous session)
 - Follow-ups: platform#115, engine#571
