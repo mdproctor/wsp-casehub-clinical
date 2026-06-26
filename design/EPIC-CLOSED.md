@@ -1,4 +1,5 @@
-# Branch Closed — issue-71-tenant-query-isolation
-**Date:** 2026-06-10
-**Issue:** #71
-**Covers:** 71
+# Branch Closed: issue-89-tenancy-perf-gdpr
+
+**Date:** 2026-06-26
+**Issues:** 89,87,79
+**Status:** merged to main
