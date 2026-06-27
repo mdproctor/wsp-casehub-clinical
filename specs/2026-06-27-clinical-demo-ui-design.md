@@ -1,6 +1,6 @@
 # Clinical Trial Demo UI — Design Spec
 
-**Date:** 2026-06-27 (revision 5)
+**Date:** 2026-06-27 (revision 6 — final)
 **Epic:** casehubio/clinical#93
 **casehub-pages Epic:** casehubio/casehub-pages#50
 
@@ -144,11 +144,11 @@ and a tamper-evident audit trail.`),
 );
 ```
 
-**Trial ID constant:** The seeder uses a deterministic UUID: `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes())`. The same value is hardcoded in `datasets.ts`:
+**Trial ID constant:** The seeder uses a deterministic UUID: `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes(StandardCharsets.UTF_8))`. The same value is hardcoded in `datasets.ts`:
 
 ```typescript
 // Deterministic UUID matching DemoDataSeeder.TRIAL_ID
-export const TRIAL_ID = "b1a3d35b-67e7-3e6e-9bdb-e9e2bfd8b520";
+export const TRIAL_ID = "316e3846-4ea7-3b18-a6f7-e01ce6582a69";
 ```
 
 ### Dataset binding
@@ -293,6 +293,9 @@ Six operational dashboard pages, priority-ordered:
   - Status transition: REPORTED → ESCALATED
   - Alert (html workaround): "24h SLA activated"
   - Processing indicator (html workaround): shows while engine case is in-flight, clears when expected state detected. Timeout warning after 15s.
+  - DSMB rollup callout: the seeded Grade 4 AEs at Site A left `grade4Active` flags set on the trial case blackboard. When this new Grade 4 AE fires at Site B, the trial case now sees ≥2 sites with simultaneous Grade 4+ signals — the DSMB rollup binding fires automatically. The narrative highlights this: "Notice: the platform detected a cross-site safety pattern. Two sites now have active Grade 4+ events — a DSMB review has been triggered automatically, with no site-level agent having global visibility."
+
+**DSMB rollup is a feature, not noise.** The seeder intentionally does NOT complete the AE escalation WorkItems for the seeded Grade 4 AEs — it completes only the SUSAR oversight gates (for attestation/trust score seeding). The `grade4Active` flags remain set, priming the trial case for the DSMB rollup when Step 5 adds a second site. This turns a Layer 6 capability into a live demo moment.
 
 ### Step 6: AI Decision & Governance
 
@@ -498,7 +501,7 @@ dataset("agents", `/api/trials/${TRIAL_ID}/agents`)
 dataset("trial-summary", `/api/trials/${TRIAL_ID}/summary`, { refreshTime: "30s" })
 ```
 
-**Trial ID resolution:** `TRIAL_ID` is a TypeScript constant in `datasets.ts` — the deterministic UUID matching `DemoDataSeeder.TRIAL_ID` in Java. Both use `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes())`. No dynamic URL templating (casehub-pages#49) needed; the UUID is a build-time constant shared between Java and TypeScript.
+**Trial ID resolution:** `TRIAL_ID` is a TypeScript constant in `datasets.ts` — the deterministic UUID matching `DemoDataSeeder.TRIAL_ID` in Java. Both use `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes(StandardCharsets.UTF_8))`. No dynamic URL templating (casehub-pages#49) needed; the UUID is a build-time constant shared between Java and TypeScript.
 
 ### Pre-seeded Data (DemoDataSeeder)
 
@@ -634,7 +637,7 @@ runtime/src/main/webui/
 ```
 runtime/src/main/java/io/casehub/clinical/
 ├── resource/
-│   └── TrialDashboardResource.java    # 6 list/summary endpoints; response records nested inside
+│   └── TrialDashboardResource.java    # 7 endpoints (6 list/summary + governance); response records nested inside
 ├── demo/
 │   ├── DemoActionResource.java        # /demo/... endpoints (IfBuildProfile("dev"))
 │   ├── DemoCurrentPrincipal.java      # CurrentPrincipal for dev mode (IfBuildProfile("dev"))
@@ -700,7 +703,7 @@ Tracked in casehubio/casehub-pages#50. All have workarounds — demo is not bloc
 
 ### Java tests
 
-- **TrialDashboardResource** — `@QuarkusTest` integration tests for all 6 endpoints. Pre-create entities in `@BeforeEach`, verify response shape, filtering, pagination.
+- **TrialDashboardResource** — `@QuarkusTest` integration tests for all 7 endpoints. Pre-create entities in `@BeforeEach`, verify response shape, filtering, pagination.
 - **DemoActionResource** — `@QuarkusTest` integration tests for both demo endpoints. Verify gate approval fires real lifecycle, trust score recomputation produces delta.
 - **DemoDataSeeder** — integration test: verify entity counts, Merkle chain integrity (`ledgerVerificationService.verify()` passes for all seeded subjects), config guard (`seed-data=false` → no seeding).
 - **DemoCurrentPrincipal** — unit test verifying fixed tenant/actor values.
