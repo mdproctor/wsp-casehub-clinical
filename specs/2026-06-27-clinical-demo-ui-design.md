@@ -1,6 +1,6 @@
 # Clinical Trial Demo UI — Design Spec
 
-**Date:** 2026-06-27 (revised)
+**Date:** 2026-06-27 (revision 3)
 **Epic:** casehubio/clinical#93
 **casehub-pages Epic:** casehubio/casehub-pages#50
 
@@ -87,16 +87,22 @@ if (isWatch) {
 
 ### Page composition pattern
 
-Each guided step and explore page is a `page()` call returning a DSL component tree:
+Each guided step and explore page is a `page()` call returning a DSL component tree.
+
+**Function signatures** (from `@casehubio/pages-ui`):
+- `page(name: string, ...args: (Component | PageOptions)[])` — root container
+- `columns(distribution: number[], ...slotContents: Component[][])` — grid layout; distribution array length must match slot count
+- `sidebar(...entries: [string, ...Component[]][])` — nav sidebar; same pattern for `tabs`, `pills`, `menu`, `tree`
+- `lookup(dataSetId: string, ...ops: DataSetOp[])` — dataset query with chained operations
+- `groupBy(source: string | null, ...resultColumns: ResultColumn[])` — aggregation; `null` source for ungrouped aggregates
+- `count(source)`, `sum(source)`, `avg(source)`, `col(source)` — single-parameter aggregation functions
+- `filterBy(columnId, operator, value)` — filter operation
+- `sortBy(columnId, direction)` — sort operation
 
 ```typescript
 // Example: Step 1 — Trial Overview
 import { page, columns, metric, barChart, table, markdown,
          dataset, lookup, groupBy, col, count, sum } from "@casehubio/pages-ui";
-import type { DataSetId, ColumnId } from "@casehubio/data";
-
-const trialSummary = "trial-summary" as DataSetId;
-const sites = "sites" as DataSetId;
 
 export const step1Overview = page("1. Trial Overview",
   markdown(`## ONCO-2024-001 — Phase III Oncology Trial
@@ -104,40 +110,35 @@ CaseHub coordinates AI agents for eligibility screening, safety monitoring,
 and protocol review — each governed by trust scores, oversight gates,
 and a tamper-evident audit trail.`),
 
-  columns(
-    { span: 3 }, metric({ title: "Trial Phase", lookup: lookup(trialSummary) }),
-    { span: 3 }, metric({ title: "Total Enrolled",
-      lookup: lookup(trialSummary, [], [groupBy([], [sum("enrolled" as ColumnId)])]) }),
-    { span: 3 }, metric({ title: "Active AEs",
-      lookup: lookup(trialSummary, [], [groupBy([], [sum("activeAeCount" as ColumnId)])]) }),
-    { span: 3 }, metric({ title: "AI Agents Active",
-      lookup: lookup("agents" as DataSetId, [], [groupBy([], [count("id" as ColumnId)])]) })
+  // 4-column metrics row: distribution [3,3,3,3], one component array per slot
+  columns([3, 3, 3, 3],
+    [metric({ title: "Trial Phase", lookup: lookup("trial-summary") })],
+    [metric({ title: "Total Enrolled", lookup: lookup("trial-summary", groupBy(null, sum("enrolled"))) })],
+    [metric({ title: "Active AEs", lookup: lookup("trial-summary", groupBy(null, sum("activeAeCount"))) })],
+    [metric({ title: "AI Agents Active", lookup: lookup("agents", groupBy(null, count("id"))) })]
   ),
 
   barChart({
     title: "Enrollment by Site",
-    lookup: lookup(sites, [], [
-      groupBy(["siteName" as ColumnId], [col("siteName" as ColumnId), sum("enrolled" as ColumnId)])
-    ])
+    lookup: lookup("sites", groupBy("siteName", col("siteName"), sum("enrolled")))
   }),
 
   table({
     sortable: true,
     columns: [
-      { id: "siteName" as ColumnId },
-      { id: "investigator" as ColumnId },
-      { id: "enrolled" as ColumnId },
-      { id: "status" as ColumnId,
-        expression: 'value === "ACTIVE" ? "✅ ACTIVE" : value' }
+      { id: "siteName" },
+      { id: "investigator" },
+      { id: "enrolled" },
+      { id: "status", expression: 'value === "ACTIVE" ? "✅ ACTIVE" : value' }
     ],
-    lookup: lookup(sites)
+    lookup: lookup("sites")
   }),
 
   {
     datasets: [
-      dataset(trialSummary, "/api/trials/{trialId}/summary"),
-      dataset(sites, "/api/trials/{trialId}/sites"),
-      dataset("agents" as DataSetId, "/api/trials/{trialId}/agents")
+      dataset("trial-summary", "/api/trials/{trialId}/summary"),
+      dataset("sites", "/api/trials/{trialId}/sites"),
+      dataset("agents", "/api/trials/{trialId}/agents")
     ]
   }
 );
@@ -156,37 +157,36 @@ Static reference data (agents, policies) omits refresh.
 
 ### Navigation structure
 
-The root page uses `sidebar()` for guided/explore mode:
+The root page uses `sidebar()` for guided/explore mode. `sidebar()` takes variadic tuple entries: `[label, ...components]`.
 
 ```typescript
 import { page, sidebar } from "@casehubio/pages-ui";
 
-export const dashboard = page(
-  { settings: { mode: "light" } },  // default theme
-  [],
-  [
-    sidebar(
-      { navGroupId: "main-nav", width: "280px" },
-      // Guided mode pages
-      step1Overview,
-      step2Agents,
-      step3Deviation,
-      step4PiAuthorisation,
-      step5AeEvent,
-      step6Governance,
-      step7Resolution,
-      step8Proof,
-      // Explore mode pages (tree navigation for hierarchy)
-      trialDashboard,
-      adverseEvents,
-      deviations,
-      auditTrail,
-      trustNetwork,
-      siteDetail
-    )
-  ]
+export const dashboard = page("CaseHub Clinical",
+  sidebar(
+    // Act I — Accountability
+    ["1. Trial Overview", step1Overview],
+    ["2. Meet the AI Agents", step2Agents],
+    ["3. Protocol Deviation", step3Deviation],
+    ["4. PI Authorisation", step4PiAuthorisation],
+    // Act II — AI Governance
+    ["5. Grade 4 AE Reported", step5AeEvent],
+    ["6. AI Decision & Governance", step6Governance],
+    ["7. Resolution & Trust", step7Resolution],
+    ["8. The Proof", step8Proof],
+    // Explore mode
+    ["Explore/Trial Dashboard", trialDashboard],
+    ["Explore/Adverse Events", adverseEvents],
+    ["Explore/Protocol Deviations", deviations],
+    ["Explore/Audit Trail", auditTrail],
+    ["Explore/Trust Network", trustNetwork],
+    ["Explore/Site Detail", siteDetail]
+  ),
+  { settings: { mode: "light" } }
 );
 ```
+
+The `"Explore/..."` path separator creates a nested tree group in the sidebar — built-in casehub-pages tree navigation behaviour.
 
 ---
 
@@ -353,32 +353,60 @@ Two endpoints bridge the UI to the engine's internal mechanics. They abstract pl
 
 ### `POST /demo/deviations/{deviationId}/approve-pi`
 
-**Purpose:** Simulates PI approval via qhorus channel, triggering the real `MessageReceivedEvent` CDI chain.
+**Purpose:** Triggers PI approval via qhorus `ChannelGateway`, firing the real `MessageReceivedEvent` CDI chain.
 
 **Implementation:**
 1. Load `ProtocolDeviation` by `deviationId`
 2. Validate `piApprovalStatus == COMMANDED` (400 if no pending command)
-3. Get channel name from `deviation.piCommandChannelName`
-4. Call `channelService.receiveHumanMessage(channelId, senderId="demo-pi", type=DONE, content={"decision":"APPROVED"})` — fires real `MessageReceivedEvent` → `PiResponseListener` → `ProtocolDeviationResolvedEvent` → IRB escalation if applicable
-5. Return deviation status after processing
+3. Look up channel: `channelService.findByName(deviation.piCommandChannelName)` → get channel UUID
+4. Call `channelGateway.receiveHumanMessage()` with the correct record types:
+   ```java
+   channelGateway.receiveHumanMessage(
+       new ChannelRef(channel.id, channel.name),
+       new InboundHumanMessage(
+           "demo-pi",                              // externalSenderId
+           "{\"decision\":\"APPROVED\"}",           // content (JSON)
+           Instant.now(),                           // receivedAt
+           Map.of(),                                // metadata
+           deviationId.toString(),                  // correlationId
+           null                                     // inReplyTo
+       )
+   );
+   ```
+5. This fires the real chain: `ClinicalInboundNormaliser` maps JSON to DONE → `MessageReceivedEvent` CDI async → `PiResponseListener.onMessage()` → status update → `ProtocolDeviationResolvedEvent` → IRB escalation if CRITICAL
+6. Return deviation status after processing
+
+**Note:** `ChannelGateway` (not `ChannelService`) owns `receiveHumanMessage()`. `ChannelRef` and `InboundHumanMessage` are records from `io.casehub.qhorus.api.gateway`. This matches the pattern in `PiResponseListenerIntegrationTest`.
 
 **Error handling:** 404 if deviation not found, 409 if already resolved.
 
 ### `POST /demo/adverse-events/{aeId}/approve-susar-gate`
 
-**Purpose:** Approves the pending SUSAR oversight gate, triggering the real gate lifecycle and trust score recomputation.
+**Purpose:** Approves the pending SUSAR oversight gate by completing its WorkItem, triggering the real gate lifecycle and trust score recomputation.
+
+**Mechanism:** There is no `ActionGateService.approve()` — gates are approved by completing WorkItems. When the engine schedules an action gate, `ActionGateWorkItemHandler` creates a WorkItem with `callerRef = "case:{caseId}/gate:{gateId}"` (via `GateCallerRef.encode()`). Completing that WorkItem triggers `ActionGateCompletionApplier`, which publishes `ActionGateApprovedEvent`. The demo endpoint abstracts this WorkItem lifecycle.
 
 **Implementation:**
 1. Load `AdverseEvent` by `aeId`
 2. Validate `ae.susarOversightCaseId != null` and `ae.susarOversightStatus == REQUESTED` (400/409 otherwise)
-3. Find the pending `ActionGate` via `CaseInstanceRepository.findByUuid(ae.susarOversightCaseId, tenantId)` and inspect the case's pending action gate
-4. Call `ActionGateService.approve(gateId, "demo-investigator")` — fires real `ActionGateApprovedEvent` → `SusarGateDecisionListener` writes ledger entry → `SusarAgentAttestationWriter` writes attestation
-5. After attestation is written, call `TrustScoreJob.runComputation()` to recompute Bayesian Beta scores immediately (instead of waiting for 24h cron)
-6. Return gate decision + attestation verdict + trust score delta (before/after)
+3. Find the gate WorkItem: query active WorkItems whose `callerRef` starts with `"case:" + ae.susarOversightCaseId + "/gate:"`. Since there is at most one pending gate per SUSAR oversight case, this is unambiguous. Use `WorkItemStore` to scan for the matching callerRef prefix.
+4. Claim the WorkItem: `workItemService.claim(workItem.id, "demo-investigator")` — moves PENDING → IN_PROGRESS (required before completion)
+5. Complete the WorkItem: `workItemService.complete(workItem.id, "demo-investigator", "{\"decision\":\"APPROVED\"}", "APPROVED")` — this triggers the real chain:
+   - `ActionGateCompletionApplier` detects the gate callerRef and publishes `ActionGateApprovedEvent`
+   - `SusarGateDecisionListener` consumes the event and writes the SUSAR decision ledger entry
+   - `SusarAgentAttestationWriter` consumes the event and writes the `LedgerAttestation` (ENDORSED)
+6. After attestation is written, call `TrustScoreJob.runComputation()` to recompute Bayesian Beta scores immediately (instead of waiting for 24h cron)
+7. Return gate decision + attestation verdict + trust score delta (before/after)
 
-**Trust score recomputation:** `TrustScoreJob.runComputation()` is a public `@Transactional` method on the CDI bean. The demo endpoint calls it directly after attestation write. This is the same computation the 24h cron job performs — triggered on-demand so the trust score delta is visible immediately. The spec documents this explicitly because the batch nature of trust score computation would otherwise make the "before/after" metric cards show identical values.
+**WorkItem lookup strategy:** `WorkItemService.findActiveByCallerRef()` takes an exact string match. The demo endpoint doesn't know the `gateId` (it's an `EventLog` entry ID internal to the engine). Options:
+- Add a `findActiveByCallerRefPrefix(String prefix)` method to `WorkItemStore` — returns the single active WorkItem matching the prefix. This is a clean extension.
+- Or scan via `WorkItemStore` directly using the stream API to filter by callerRef prefix.
 
-**Error handling:** 404 if AE not found, 400 if no SUSAR oversight case exists, 409 if gate already resolved.
+The first option is cleaner — file an issue on casehub-work if needed.
+
+**Trust score recomputation:** `TrustScoreJob.runComputation()` is a public `@Transactional` method on the CDI bean. The demo endpoint calls it directly after the gate approval events have been processed. This is the same computation the 24h cron job performs — triggered on-demand so the trust score delta is visible immediately. Without this, the "before/after" metric cards would show identical values because trust scores are batch-computed.
+
+**Error handling:** 404 if AE not found, 400 if no SUSAR oversight case exists, 409 if gate already resolved, 409 if no active gate WorkItem found.
 
 ### Profile guard
 
@@ -414,10 +442,9 @@ public class DemoCurrentPrincipal implements CurrentPrincipal {
 }
 ```
 
-Activated via:
-```properties
-%dev.quarkus.arc.selected-alternatives=io.casehub.clinical.demo.DemoCurrentPrincipal
-```
+**No `selected-alternatives` entry needed.** `DemoCurrentPrincipal` lives in clinical's `runtime` module (Jandex-indexed automatically). `@Alternative @Priority(150)` beats `OidcCurrentPrincipal @Alternative @Priority(100)` via standard ArC priority resolution — the same mechanism by which `OidcCurrentPrincipal` itself beats `MockCurrentPrincipal @DefaultBean` in production without being listed in `selected-alternatives`. `@IfBuildProfile("dev")` excludes the bean entirely from non-dev builds, eliminating any ambiguity.
+
+**Do NOT add `%dev.quarkus.arc.selected-alternatives`.** Quarkus profile-specific properties completely replace their non-profiled counterparts. The existing `quarkus.arc.selected-alternatives` lists `JpaLedgerEntryRepository`, `JpaPlanItemStore`, and `JpaSubCaseGroupRepository`. A `%dev.` override would drop all three, causing CDI unsatisfied dependency failures at startup. The `@IfBuildProfile + @Alternative + @Priority` pattern avoids this entirely.
 
 The `DemoDataSeeder` stamps all entities with `tenantId = "demo-tenant"` to match.
 
@@ -471,7 +498,20 @@ dataset("trial-summary" as DataSetId, "/api/trials/{trialId}/summary", { refresh
 - The seeder uses polling (same pattern as `ThreeSiteShowcaseTest` with `Awaitility`) to wait for async processing to complete before proceeding
 - The seeder verifies Merkle chain integrity for each subject after seeding, using `LedgerVerificationService.verify()` — if verification fails, the seeder throws and startup aborts
 
-**`DemoDataSeeder`** is a CDI bean observing `StartupEvent`, guarded by `casehub.clinical.demo.seed-data` config property (true in dev profile only).
+**`DemoDataSeeder`** is a CDI bean guarded by `casehub.clinical.demo.seed-data` config property (true in dev profile only).
+
+**Startup timing:** The seeder calls services that fire `@ObservesAsync` CDI events dispatched on Vert.x worker threads. The seeder's polling loop runs on the calling thread while Vert.x workers process async events concurrently. Quarkus initializes the Vert.x event bus and worker pools before CDI bean creation, so by `StartupEvent` time Vert.x workers are available.
+
+**Risk:** If the Vert.x event bus proves unreliable during `StartupEvent` in practice (async observers not dispatching), switch to a `@Scheduled` one-shot approach:
+```java
+@Scheduled(every = "1s", delayed = "3s", identity = "demo-seeder")
+void seedOnce() {
+    if (seeded.compareAndSet(false, true)) { runSeed(); }
+}
+```
+This fires 3 seconds after full startup and self-disables via `AtomicBoolean`.
+
+**Connection pool concern:** The seeder's polling loop must NOT be `@Transactional` — each poll is a separate transaction. Holding a JDBC connection during polling while async handlers need connections from the same pool would cause Agroal pool exhaustion. This is the same constraint as the existing three-phase pattern documented in CLAUDE.md.
 
 **Trial:** ONCO-2024-001, Phase III oncology, sponsor "Meridian Therapeutics"
 
@@ -587,8 +627,8 @@ quarkus.quinoa.build-dir=dist
 %dev.casehub.clinical.demo.seed-data=true
 casehub.clinical.demo.seed-data=false
 
-# Dev-profile CurrentPrincipal
-%dev.quarkus.arc.selected-alternatives=io.casehub.clinical.demo.DemoCurrentPrincipal
+# DemoCurrentPrincipal is activated via @IfBuildProfile("dev") + @Alternative @Priority(150)
+# — no selected-alternatives entry needed (see Authentication in Dev Mode section)
 ```
 
 ---
