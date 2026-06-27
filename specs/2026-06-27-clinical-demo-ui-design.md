@@ -1,6 +1,6 @@
 # Clinical Trial Demo UI — Design Spec
 
-**Date:** 2026-06-27 (revision 3)
+**Date:** 2026-06-27 (revision 4)
 **Epic:** casehubio/clinical#93
 **casehub-pages Epic:** casehubio/casehub-pages#50
 
@@ -136,20 +136,29 @@ and a tamper-evident audit trail.`),
 
   {
     datasets: [
-      dataset("trial-summary", "/api/trials/{trialId}/summary"),
-      dataset("sites", "/api/trials/{trialId}/sites"),
-      dataset("agents", "/api/trials/{trialId}/agents")
+      dataset("trial-summary", `/api/trials/${TRIAL_ID}/summary`),
+      dataset("sites", `/api/trials/${TRIAL_ID}/sites`),
+      dataset("agents", `/api/trials/${TRIAL_ID}/agents`)
     ]
   }
 );
 ```
 
-### Dataset binding
-
-Each REST endpoint maps to a `dataset("id", "/api/url")` call. Datasets with active scenario data use polling:
+**Trial ID constant:** The seeder uses a deterministic UUID: `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes())`. The same value is hardcoded in `datasets.ts`:
 
 ```typescript
-dataset("adverse-events" as DataSetId, "/api/trials/{trialId}/adverse-events",
+// Deterministic UUID matching DemoDataSeeder.TRIAL_ID
+export const TRIAL_ID = "b1a3d35b-67e7-3e6e-9bdb-e9e2bfd8b520";
+```
+
+### Dataset binding
+
+Each REST endpoint maps to a `dataset()` call using the `TRIAL_ID` constant from `datasets.ts`. Datasets with active scenario data use polling:
+
+```typescript
+import { TRIAL_ID } from "./datasets";
+
+dataset("adverse-events", `/api/trials/${TRIAL_ID}/adverse-events`,
   { refreshTime: "3s" })  // 3s polling during active scenario
 ```
 
@@ -157,23 +166,23 @@ Static reference data (agents, policies) omits refresh.
 
 ### Navigation structure
 
-The root page uses `sidebar()` for guided/explore mode. `sidebar()` takes variadic tuple entries: `[label, ...components]`.
+The root page uses `tree()` for navigation. `tree()` supports "/" path separators for nested groups — `sidebar()` does not (it renders flat buttons with literal text). All nav components share the same DSL signature: `(...entries: [string, ...Component[]][])`.
 
 ```typescript
-import { page, sidebar } from "@casehubio/pages-ui";
+import { page, tree } from "@casehubio/pages-ui";
 
 export const dashboard = page("CaseHub Clinical",
-  sidebar(
+  tree(
     // Act I — Accountability
-    ["1. Trial Overview", step1Overview],
-    ["2. Meet the AI Agents", step2Agents],
-    ["3. Protocol Deviation", step3Deviation],
-    ["4. PI Authorisation", step4PiAuthorisation],
+    ["Guided/1. Trial Overview", step1Overview],
+    ["Guided/2. Meet the AI Agents", step2Agents],
+    ["Guided/3. Protocol Deviation", step3Deviation],
+    ["Guided/4. PI Authorisation", step4PiAuthorisation],
     // Act II — AI Governance
-    ["5. Grade 4 AE Reported", step5AeEvent],
-    ["6. AI Decision & Governance", step6Governance],
-    ["7. Resolution & Trust", step7Resolution],
-    ["8. The Proof", step8Proof],
+    ["Guided/5. Grade 4 AE Reported", step5AeEvent],
+    ["Guided/6. AI Decision & Governance", step6Governance],
+    ["Guided/7. Resolution & Trust", step7Resolution],
+    ["Guided/8. The Proof", step8Proof],
     // Explore mode
     ["Explore/Trial Dashboard", trialDashboard],
     ["Explore/Adverse Events", adverseEvents],
@@ -186,7 +195,7 @@ export const dashboard = page("CaseHub Clinical",
 );
 ```
 
-The `"Explore/..."` path separator creates a nested tree group in the sidebar — built-in casehub-pages tree navigation behaviour.
+`tree()` parses "/" separators via `buildTreeStructure()` in pages-component, rendering a hierarchical sidebar with collapsible groups. The "Guided" group auto-expands on first load; "Explore" collapses to keep focus on the narrative.
 
 ---
 
@@ -456,35 +465,40 @@ The `DemoDataSeeder` stamps all entities with `tenantId = "demo-tenant"` to matc
 
 Read-only aggregation/summary endpoints with trial-level auth. These are **not replacements** for the existing ownership-chain-validated entity endpoints — they are a different access pattern for dashboard views. The existing endpoints validate the full trial→site→patient→AE ownership chain per entity. These endpoints validate only trial-level access and return flattened, pre-joined data.
 
-| Endpoint | Returns |
-|----------|---------|
-| `GET /trials/{trialId}/summary` | Enrollment counts per site, AE count by grade, deviation/amendment counts, agent stats |
-| `GET /trials/{trialId}/agents` | Agent list: capability, trust score, dimension, phase, decisions, endorsement ratio |
-| `GET /trials/{trialId}/patients` | All patients across all sites (flattened with site context) |
-| `GET /trials/{trialId}/adverse-events` | All AEs (flattened, includes computed slaTimeRemaining) |
-| `GET /trials/{trialId}/deviations` | All deviations (flattened with site context) |
-| `GET /trials/{trialId}/ledger-entries` | Paginated ledger entries with `?type=` filter |
+| Endpoint | Returns | Data sources |
+|----------|---------|-------------|
+| `GET /trials/{trialId}/summary` | Enrollment counts per site, AE count by grade, deviation/amendment counts, agent stats | Panache queries on domain entities (default datasource) |
+| `GET /trials/{trialId}/agents` | Agent list: capability, trust score, dimension, phase, decisions, endorsement ratio | **Cross-source aggregation:** static capabilities from `ClinicalCapabilities` + trust scores from `ActorTrustScoreRepository` (qhorus) + decision counts from `WorkerDecisionEntry` (qhorus) + attestation ratios from `LedgerAttestation` queries (qhorus). Not a simple Panache query. |
+| `GET /trials/{trialId}/patients` | All patients across all sites (flattened with site context) | Panache queries (default datasource) |
+| `GET /trials/{trialId}/adverse-events` | All AEs (flattened, includes computed slaTimeRemaining) | Panache queries (default datasource) |
+| `GET /trials/{trialId}/adverse-events/{aeId}/governance` | SUSAR decision context for Step 6 hero layout: AE SUSAR fields + `WorkerDecisionEntry` (workerId, capabilityTag, trustScoreAtRouting, thresholdApplied) + current `ActorTrustScore` + gate status | **Cross-source aggregation:** AE entity (default) + `CaseLedgerEntryRepository.findWorkerDecisionsByCaseId(ae.susarOversightCaseId)` (qhorus) + `ActorTrustScoreRepository` (qhorus). Gate status derived from `ae.susarOversightStatus` (not ephemeral in-memory gate state). |
+| `GET /trials/{trialId}/deviations` | All deviations (flattened with site context) | Panache queries (default datasource) |
+| `GET /trials/{trialId}/ledger-entries` | Paginated ledger entries with `?type=` filter | **Cross-datasource query:** find all enrollment IDs + deviation IDs for the trial (default datasource), then query `LedgerEntryRepository.findBySubjectId()` for each subject (qhorus datasource). No `trialId` column on `LedgerEntry` — the join is application-level. |
 
 All carry `@RolesAllowed` consistent with existing resources — even though dev mode disables enforcement, the annotations maintain production consistency.
 
 Response types are **nested records inside `TrialDashboardResource`** — matching the existing pattern in clinical where request/response types are nested in resource classes. No standalone DTO package.
+
+**Governance endpoint detail:** The `/governance` endpoint powers Step 6's hero layout. The left panel ("What the AI decided") uses AE fields (`unexpected`, `suspected`, `grade`) and `WorkerDecisionEntry` output. The right panel ("How the platform governed it") uses `WorkerDecisionEntry.trustScoreAtRouting`, `thresholdApplied`, and `ActorTrustScore` current values. The trust routing selection rationale is not persisted as a separate record, but the post-hoc capture on `WorkerDecisionEntry` shows exactly what policy was in effect and what score was observed — sufficient for the demo display.
 
 ### Datasets
 
 Each endpoint maps to a casehub-pages `dataset()` call:
 
 ```typescript
+import { TRIAL_ID } from "./datasets";
+
 // Active scenario data — 3s polling
-dataset("adverse-events" as DataSetId, "/api/trials/{trialId}/adverse-events", { refreshTime: "3s" })
+dataset("adverse-events", `/api/trials/${TRIAL_ID}/adverse-events`, { refreshTime: "3s" })
 
 // Static reference data — no polling
-dataset("agents" as DataSetId, "/api/trials/{trialId}/agents")
+dataset("agents", `/api/trials/${TRIAL_ID}/agents`)
 
 // Idle dashboard — 30s polling
-dataset("trial-summary" as DataSetId, "/api/trials/{trialId}/summary", { refreshTime: "30s" })
+dataset("trial-summary", `/api/trials/${TRIAL_ID}/summary`, { refreshTime: "30s" })
 ```
 
-**Note on URL parameters:** The pre-seeded trial has a fixed ID known at startup. Dataset URLs use the concrete trial UUID, not a template variable. Dynamic URL templating (casehub-pages#49) is not needed for the demo but would be needed for a multi-tenant production dashboard.
+**Trial ID resolution:** `TRIAL_ID` is a TypeScript constant in `datasets.ts` — the deterministic UUID matching `DemoDataSeeder.TRIAL_ID` in Java. Both use `UUID.nameUUIDFromBytes("ONCO-2024-001".getBytes())`. No dynamic URL templating (casehub-pages#49) needed; the UUID is a build-time constant shared between Java and TypeScript.
 
 ### Pre-seeded Data (DemoDataSeeder)
 
@@ -499,6 +513,8 @@ dataset("trial-summary" as DataSetId, "/api/trials/{trialId}/summary", { refresh
 - The seeder verifies Merkle chain integrity for each subject after seeding, using `LedgerVerificationService.verify()` — if verification fails, the seeder throws and startup aborts
 
 **`DemoDataSeeder`** is a CDI bean guarded by `casehub.clinical.demo.seed-data` config property (true in dev profile only).
+
+**Idempotency:** Quarkus dev mode uses a persistent H2 database. If the user stops and restarts `mvn quarkus:dev`, the seeder runs again on existing data. The seeder checks `ClinicalTrial.find("protocolId", "ONCO-2024-001").firstResult() != null` at the top — if the trial exists, skip entirely. No partial re-seeding.
 
 **Startup timing:** The seeder calls services that fire `@ObservesAsync` CDI events dispatched on Vert.x worker threads. The seeder's polling loop runs on the calling thread while Vert.x workers process async events concurrently. Quarkus initializes the Vert.x event bus and worker pools before CDI bean creation, so by `StartupEvent` time Vert.x workers are available.
 
@@ -550,6 +566,17 @@ After a POST action:
 
 casehub-pages `refresh: { interval: 3000 }` handles the polling. State detection is done via dataset content — the narrative page checks whether the expected value appears in the refreshed dataset. The processing indicator uses an html() component with JavaScript that reads from the same dataset.
 
+### Action button idempotency
+
+Action buttons check the dataset for existing state before enabling. This handles restarts, re-runs, and double-clicks:
+
+- "Report Protocol Deviation" (Step 3): button disabled if the deviations dataset already contains a CRITICAL deviation at Site B
+- "Report Adverse Event" (Step 5): button disabled if the adverse-events dataset already contains a Grade 4 AE at Site B with the demo patient
+- "Approve as PI" (Step 4): button disabled if deviation status is not COMMANDED
+- "Approve SUSAR Determination" (Step 7): button disabled if AE susarOversightStatus is not REQUESTED
+
+On navigation away and back, the button re-checks the dataset — if the action was completed during a previous visit, the button stays disabled and shows the result. This makes the demo resilient to restarts without server-side idempotency.
+
 ---
 
 ## Error States
@@ -577,7 +604,7 @@ runtime/src/main/webui/
 ├── index.html                # Shell: <div id="app"></div> + <script src="dist/app.js">
 ├── src/
 │   ├── index.ts              # Entry: loadSite(container, dashboard)
-│   ├── dashboard.ts          # Root page: sidebar with guided + explore mode pages
+│   ├── dashboard.ts          # Root page: tree() nav with Guided + Explore groups
 │   ├── guided/
 │   │   ├── step1-overview.ts       # page() composition with markdown + metrics + chart + table
 │   │   ├── step2-agents.ts         # page() with agent table + trust policy table
@@ -594,7 +621,7 @@ runtime/src/main/webui/
 │   │   ├── deviations.ts           # page() with deviation table + PI status
 │   │   ├── trust-network.ts        # page() with agent table + trust metrics
 │   │   └── site-detail.ts          # page() with per-site patient table + cross-filter
-│   ├── datasets.ts           # All dataset() definitions with URL bindings + refresh config
+│   ├── datasets.ts           # TRIAL_ID constant + all dataset() definitions with URL bindings + refresh config
 │   ├── lookups.ts            # Reusable lookup() definitions (groupBy, filterBy combos)
 │   ├── theme.ts              # Wrapper around casehub-pages setTheme() — balanced professional + dark mode config via CSS custom properties
 │   └── narrative.ts          # Markdown text content for all 8 guided mode panels — centralised for easy editing
@@ -619,9 +646,9 @@ Add `quarkus-quinoa` extension to `runtime/pom.xml`.
 ### Configuration
 
 ```properties
-# Quinoa
-quarkus.quinoa.dev-server.port=3000
+# Quinoa — esbuild (no dev server; Quinoa watches sources and re-runs npm build)
 quarkus.quinoa.build-dir=dist
+quarkus.quinoa.package-manager-install=true
 
 # Demo data (dev profile only)
 %dev.casehub.clinical.demo.seed-data=true
@@ -706,7 +733,7 @@ Issues to be updated with the revised scope (8 guided steps, 2 demo endpoints, D
 |---|-------------|-------|------------|------------|
 | #94 | Quinoa setup + webui scaffold | S | Low | — |
 | #95 | DemoDataSeeder (service-layer seeding with Merkle verification) | M | High | — |
-| #96 | TrialDashboardResource (6 endpoints) | M | Med | — |
+| #96 | TrialDashboardResource (7 endpoints incl. governance) | M | Med | — |
 | NEW | DemoActionResource (2 demo endpoints) + DemoCurrentPrincipal | M | High | — |
 | #97 | Datasets + lookups module | S | Low | #96 |
 | #98 | Guided Steps 1-2 | M | Med | #95, #97 |
