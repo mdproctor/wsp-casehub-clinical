@@ -1,6 +1,6 @@
 # Clinical Trial Demo UI — Design Spec
 
-**Date:** 2026-06-27 (revision 4)
+**Date:** 2026-06-27 (revision 5)
 **Epic:** casehubio/clinical#93
 **casehub-pages Epic:** casehubio/casehub-pages#50
 
@@ -533,11 +533,13 @@ This fires 3 seconds after full startup and self-disables via `AtomicBoolean`.
 
 | Site | Name | Patients | Pre-seeded events |
 |------|------|----------|-------------------|
-| Site A | Memorial Cancer Center | 4 | 1 completed eligibility screening (CRITERIA_MET), 1 resolved Grade 2 AE with full Merkle-verified ledger trail |
-| Site B | Johns Hopkins Oncology | 3 | 1 resolved protocol deviation (PI approved via `receiveHumanMessage`, commitment lifecycle complete, ledger entries verified) |
+| Site A | Memorial Cancer Center | 4 | 1 eligibility screening (CRITERIA_MET), 1 resolved Grade 2 AE (baseline — no SUSAR gate), 2–3 resolved Grade 4 unexpected AEs with full SUSAR lifecycle (gate WorkItem claimed + completed → attestations written → trust scores materialised) |
+| Site B | Johns Hopkins Oncology | 3 | 1 resolved protocol deviation (PI approved via `channelGateway.receiveHumanMessage`, commitment lifecycle complete, ledger entries verified) |
 | Site C | Mayo Clinic Research | 3 | 1 completed protocol amendment (PROCEED, ledger entries verified) |
 
-Pre-populated trust score history: after seeding the resolved AE (Site A), the seeder calls `TrustScoreJob.runComputation()` to materialise initial trust scores from the attestations written during AE processing. This gives the "Meet the AI Agents" page real trust score data on first load.
+**Trust score materialisation:** Grade 2 AEs do not trigger SUSAR oversight — `SusarCriteriaEvaluator` gates on `GRADE_4`/`GRADE_5`, and `DefaultAdverseEventEscalationPolicy` routes Grade 1-2 directly with no engine case. Zero attestations means `TrustScoreJob.runComputation()` produces nothing. The 2–3 Grade 4 unexpected AEs at Site A are specifically for trust score seeding: each completes the full SUSAR gate lifecycle (report → SUSAR case starts → gate WorkItem created → claimed → completed → `SusarAgentAttestationWriter` writes ENDORSED attestation). After all are resolved, the seeder calls `TrustScoreJob.runComputation()` to materialise Bayesian Beta scores from the accumulated attestations. This gives the "Meet the AI Agents" page real trust score data on first load — agents with 2–3 decisions, measurable endorsement ratios, and non-bootstrap trust scores.
+
+The seeder replays the same flow as live demo Steps 5–7 for each Grade 4 AE: report → wait for SUSAR case → find gate WorkItem → claim → complete → wait for attestation. This adds startup time (~5s per AE) but produces genuine trust data.
 
 ### Live Actions
 
