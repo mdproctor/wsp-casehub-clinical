@@ -2,41 +2,33 @@
 
 ## Last Session
 
-Two branches closed this session:
-
-**Plan 1 backend (#93):** 7 dashboard endpoints (TrialViewResource), 2 demo action endpoints (DemoActionResource), DemoCurrentPrincipal, DemoDataSeeder. 6 rounds of adversarial spec review, 5 per-task reviews + whole-branch review.
-
-**Plan 2 TypeScript UI (#105):** 14 casehub-pages DSL page compositions — 8 guided walkthrough steps (trial overview, AI agents, deviation + PI auth, AE event + governance hero layout, resolution + Merkle proof) + 6 explore dashboard pages. Linked casehub-pages packages locally via `file:` protocol, re-added Quinoa.
-
-**Blocked on #106:** `mvn quarkus:dev` fails with CDI errors. The project has never run in dev mode — only via `@QuarkusTest`. Dev mode needs the same CDI exclusions, Quartz RAM config, Flyway disabling, and reactive suppression as the test config. Three errors fixed (OidcCurrentPrincipal, connectors, Quartz); more remain (Mutiny.SessionFactory, possibly others).
+Dev-mode config alignment (#106) — `mvn quarkus:dev` now starts with H2, all 14 demo pages render live data. Key discovery: `quarkus.arc.selected-alternatives` ignores `%dev.` profile overrides; workaround uses profile-specific `exclude-types`. Also fixed all casehub-pages DSL calling conventions and integrated native `action-button`/`alert` components.
 
 ## Immediate Next Step
 
-**#106 is the priority.** Align `%dev.` profile in `application.properties` with the test config. Systematic — read both configs, diff them, apply all `%dev.` equivalents in one pass. Once dev mode starts, the demo UI is visible at `http://localhost:8080`.
+Pick the next issue from the backlog below. #102 (Playwright smoke tests) is now unblocked since dev mode runs.
 
 ## What's Left
 
-- `casehubio/clinical#106` — dev-mode config alignment · S · Med · **PRIORITY — blocks seeing the demo**
-- Plan 3: Playwright smoke tests (#102) · S · Med · depends on #106
-- Missing `/trials/{id}/sites` endpoint — Step 1 enrollment chart + sites table are TODOs
+- `casehubio/clinical#102` — Playwright smoke tests · S · Med · unblocked by #106
+- Missing `/trials/{id}/sites` GET endpoint — Step 1 enrollment chart + sites table need it
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
 - Pre-existing flaky tests: `ThreeSiteShowcaseTest`, `RegulatorySubmissionDeadlineLifecycleTest` (×2)
+- Steps 4, 7, 8, audit-trail still use html() scripts via MutationObserver (action-button needs dynamic IDs or GET support)
+- DemoDataSeeder SUSAR oversight case start times out — partial demo data
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #106 | Dev-mode config alignment | S | Med | **PRIORITY** — blocks demo |
-| #102 | Playwright smoke tests | S | Med | Depends on #106 |
+| #102 | Playwright smoke tests | S | Med | Unblocked by #106 |
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
 | #78 | CBR over adverse event history | L | High | Blocked: foundation |
 
 ## References
 
-- Spec: `specs/2026-06-27-clinical-demo-ui-design.md` (Rev 6 — final)
-- Plan 1: `plans/2026-06-27-clinical-demo-ui-backend.md`
-- Plan 2: `plans/2026-06-29-clinical-demo-ui-typescript.md`
-- Blog: `blog/2026-06-28-mdp01-the-demo-that-reviews-itself.md`
-- casehub-pages epic: casehubio/casehub-pages#50
-- Garden: GE-20260601-ad6203 revised (ArC @Alternative validation variant)
+- Garden: GE-20260629-e6460e (arc selected-alternatives profile override)
+- Garden: GE-20260629-59c7e6 (esbuild template minification)
+- Garden: GE-20260629-6f1d64 (Maven parent scope override)
+- Blog: `blog/2026-06-29-mdp01-the-profile-that-didnt.md`
