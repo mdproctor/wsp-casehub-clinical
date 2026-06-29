@@ -180,10 +180,10 @@ runtime/src/test/playwright/
   package.json              — @playwright/test dependency only
   playwright.config.ts      — baseURL, webServer, viewport
   tests/
-    smoke.spec.ts           — page reachability + data binding
-    navigation.spec.ts      — guided/explore switching, sidebar links
-    actions.spec.ts         — action button flows (step 3→4, step 5→7)
-    clipping.spec.ts        — viewport overflow checks
+    01-smoke.spec.ts        — page reachability + data binding
+    02-navigation.spec.ts   — guided/explore switching, sidebar links
+    03-clipping.spec.ts     — viewport overflow checks
+    04-actions.spec.ts      — action button flows (step 3→4, step 5→7)
 ```
 
 Test `package.json`:
@@ -210,7 +210,7 @@ Playwright's `webServer` config handles server lifecycle automatically:
 // playwright.config.ts
 export default defineConfig({
   webServer: {
-    command: 'mvn -f ../../../../pom.xml quarkus:dev -Dquarkus.http.host=0.0.0.0',
+    command: 'mvn -f ../../../pom.xml quarkus:dev -Dquarkus.http.host=0.0.0.0',
     url: 'http://localhost:8080/q/health',
     reuseExistingServer: !process.env.CI,
     timeout: 120_000,
@@ -245,7 +245,7 @@ Within a single test run, tests are ordered to handle state accumulation:
 
 **4. Live action flow — step 3→4** — click "Report CRITICAL Protocol Deviation" (step 3), verify deviations table shows COMMANDED row. Navigate to step 4, click PI approval via the new `<clinical-pi-approval>` component, verify status transitions.
 
-**5. Live action flow — step 5→7** — click "Report Grade 4 Adverse Event" (step 5), verify AE table shows new entry with GRADE_4. Navigate to step 7, verify `<clinical-susar-gate>` auto-discovers the REQUESTED AE (no sessionStorage dependency), click "Approve SUSAR Determination", verify trust score display and gate approval.
+**5. Live action flow — step 5→7** — click "Report Grade 4 Adverse Event" (step 5), verify AE table shows new entry with GRADE_4. Wait for the AE table on step 5 to show `escalationStatus = REQUESTED` (`await expect(row).toContainText('REQUESTED', { timeout: 15_000 })`) — this confirms the engine's async processing (AE escalation → SUSAR oversight case) has completed. Then navigate to step 7, verify `<clinical-susar-gate>` auto-discovers the REQUESTED AE (no sessionStorage dependency), click "Approve SUSAR Determination", verify trust score display and gate approval.
 
 **6. Navigation integrity** — switch between Guided and Explore modes, walk all sidebar links, no dead pages.
 
