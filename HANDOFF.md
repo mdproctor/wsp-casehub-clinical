@@ -1,34 +1,36 @@
-# Session Handover — 2026-06-29
+# Session Handover — 2026-06-30
 
 ## Last Session
 
-Dev-mode config alignment (#106) — `mvn quarkus:dev` now starts with H2, all 14 demo pages render live data. Key discovery: `quarkus.arc.selected-alternatives` ignores `%dev.` profile overrides; workaround uses profile-specific `exclude-types`. Also fixed all casehub-pages DSL calling conventions and integrated native `action-button`/`alert` components.
+Demo UI polish (#102, #108, #109) — sites list endpoint, three custom web components replacing inline scripts + MutationObserver hack, Playwright smoke tests. Design review (8 rounds, $22) improved the spec significantly before implementation. All three issues closed, two follow-up issues filed (#110, #111).
 
 ## Immediate Next Step
 
-Pick the next issue from the backlog below. #102 (Playwright smoke tests) is now unblocked since dev mode runs.
+Pre-existing build failure: `ProtocolAmendmentCaseHub.java` — casehub-engine SNAPSHOT made `YamlCaseHub.getDefinition()` final and removed `capabilities()` from `Worker.Builder`. Fix this before any new work.
 
 ## What's Left
 
-- `casehubio/clinical#102` — Playwright smoke tests · S · Med · unblocked by #106
-- Missing `/trials/{id}/sites` GET endpoint — Step 1 enrollment chart + sites table need it
+- `casehubio/clinical#110` — Java cleanup: redundant HashMap import + weak test assertion · XS · Low
+- `casehubio/clinical#111` — Playwright test hardening: error filtering, waitForTimeout, test isolation · S · Low
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
 - Pre-existing flaky tests: `ThreeSiteShowcaseTest`, `RegulatorySubmissionDeadlineLifecycleTest` (×2)
-- Steps 4, 7, 8, audit-trail still use html() scripts via MutationObserver (action-button needs dynamic IDs or GET support)
 - DemoDataSeeder SUSAR oversight case start times out — partial demo data
+- Pre-existing build failure: `ProtocolAmendmentCaseHub.java` — engine SNAPSHOT broke `getDefinition()` override + `capabilities()` API
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| #102 | Playwright smoke tests | S | Med | Unblocked by #106 |
+| — | Fix ProtocolAmendmentCaseHub build failure | S | Med | Engine SNAPSHOT API change — urgent |
+| #110 | Java cleanup (import + assertion) | XS | Low | |
+| #111 | Playwright test hardening | S | Low | |
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
 | #78 | CBR over adverse event history | L | High | Blocked: foundation |
 
 ## References
 
+- Spec: `specs/2026-06-29-demo-ui-polish-design.md` (also promoted to project `docs/specs/`)
+- Plan: `plans/attic/issue-102-playwright-smoke-tests/2026-06-30-demo-ui-polish.md`
+- Blog: `blog/2026-06-30-mdp01-the-mutationobserver-that-shouldnt-have-been.md`
 - Garden: GE-20260629-e6460e (arc selected-alternatives profile override)
-- Garden: GE-20260629-59c7e6 (esbuild template minification)
-- Garden: GE-20260629-6f1d64 (Maven parent scope override)
-- Blog: `blog/2026-06-29-mdp01-the-profile-that-didnt.md`
