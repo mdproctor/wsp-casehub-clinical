@@ -1,36 +1,28 @@
-# Session Handover — 2026-06-30
+# Session Handover — 2026-06-30 (b)
 
 ## Last Session
 
-Demo UI polish (#102, #108, #109) — sites list endpoint, three custom web components replacing inline scripts + MutationObserver hack, Playwright smoke tests. Design review (8 rounds, $22) improved the spec significantly before implementation. All three issues closed, two follow-up issues filed (#110, #111).
+Batch cleanup: #112 (engine SNAPSHOT build failure), #110 (summary endpoint + import + assertion), #111 (Playwright test hardening). All three closed. Build compiles, 500 tests pass (pre-existing flaky tests unchanged).
 
 ## Immediate Next Step
 
-Pre-existing build failure: `ProtocolAmendmentCaseHub.java` — casehub-engine SNAPSHOT made `YamlCaseHub.getDefinition()` final and removed `capabilities()` from `Worker.Builder`. Fix this before any new work.
+Pick from What's Next — no blockers, no trailing obligations.
 
 ## What's Left
 
-- `casehubio/clinical#110` — Java cleanup: redundant HashMap import + weak test assertion · XS · Low
-- `casehubio/clinical#111` — Playwright test hardening: error filtering, waitForTimeout, test isolation · S · Low
 - `casehubio/clinical#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
 - `EligibilityScreeningLedgerWriter.writeResolutionEntry()` + IRB completion listener — deferred from #10
-- Pre-existing flaky tests: `ThreeSiteShowcaseTest`, `RegulatorySubmissionDeadlineLifecycleTest` (×2)
+- Pre-existing flaky tests: `ThreeSiteShowcaseTest`, `RegulatorySubmissionDeadlineLifecycleTest` (x2)
 - DemoDataSeeder SUSAR oversight case start times out — partial demo data
-- Pre-existing build failure: `ProtocolAmendmentCaseHub.java` — engine SNAPSHOT broke `getDefinition()` override + `capabilities()` API
+- Summary endpoint returns scalar — pages-ui `trial-summary` dataset may need framework-level fix if `groupBy(null, col(...))` doesn't handle scalar JSON responses
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| — | Fix ProtocolAmendmentCaseHub build failure | S | Med | Engine SNAPSHOT API change — urgent |
-| #110 | Java cleanup (import + assertion) | XS | Low | |
-| #111 | Playwright test hardening | S | Low | |
 | #86 | Wire ProtocolAmendmentAdvisor to LlmPlanningStrategy | M | High | Blocked: engine#101 |
 | #78 | CBR over adverse event history | L | High | Blocked: foundation |
 
 ## References
 
-- Spec: `specs/2026-06-29-demo-ui-polish-design.md` (also promoted to project `docs/specs/`)
-- Plan: `plans/attic/issue-102-playwright-smoke-tests/2026-06-30-demo-ui-polish.md`
-- Blog: `blog/2026-06-30-mdp01-the-mutationobserver-that-shouldnt-have-been.md`
-- Garden: GE-20260629-e6460e (arc selected-alternatives profile override)
+*Unchanged — `git show HEAD~1:HANDOFF.md`*
