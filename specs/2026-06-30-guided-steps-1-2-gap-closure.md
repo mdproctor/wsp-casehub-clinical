@@ -1,6 +1,6 @@
 # Guided Steps 1-2 Gap Closure — #98
 
-Steps 1 and 2 were implemented under #105. Three gaps remain between
+Steps 1 and 2 were implemented under #105. Four gaps remain between
 the #98 spec and the delivered code.
 
 ## Gap 1 — Per-site target enrollment (bar chart: target vs actual)
@@ -22,10 +22,13 @@ The current bar chart shows only actual enrollment. `TrialSite` has no
 3. **`TrialDashboardResource.SiteRow`** — add `int targetEnrollment` field.
    Pass `s.targetEnrollment` in the `/sites` endpoint mapping.
 
-4. **`DemoDataSeeder`** — set per-site targets when creating sites:
-   - Site A (dr-chen): 120
-   - Site B (dr-martinez): 100
-   - Site C (dr-okonkwo): 80
+4. **`DemoDataSeeder`** — extend `addSite` signature to
+   `addSite(UUID siteId, String investigatorId, int targetEnrollment)`.
+   Set `site.targetEnrollment = targetEnrollment` inside the method.
+   Update call sites:
+   - `addSite(SITE_A_ID, "dr-chen", 120)`
+   - `addSite(SITE_B_ID, "dr-martinez", 100)`
+   - `addSite(SITE_C_ID, "dr-okonkwo", 80)`
    - Total: 300 = trial target
 
 5. **`step1-overview.ts`** — change bar chart to grouped columns:
@@ -50,16 +53,26 @@ domain field, not a UI convenience.
 **Problem:** #98 asks for "endorsement ratio." The current table shows
 two separate columns: `attestationPositive` and `attestationNegative`.
 
-**Fix — `step2-agents.ts` only:**
+**Fix — server-side computation + UI change:**
 
-Replace the two columns with a single "Endorsement" column:
-```typescript
-{ id: "attestationPositive" as ColumnId, label: "Endorsement",
-  expression: '(function() { var pos = value || 0; var neg = row.attestationNegative || 0; var total = pos + neg; return total === 0 ? "—" : Math.round(100 * pos / total) + "%"; })()' }
-```
+1. **`TrialDashboardResource.AgentRow`** — add `String endorsementRatio`
+   field. Compute in the `/agents` endpoint:
+   ```java
+   String endorsementRatio = (totalPositive + totalNegative) == 0
+       ? null
+       : Math.round(100.0 * totalPositive / (totalPositive + totalNegative)) + "%";
+   ```
 
-Remove the `attestationNegative` column. The ratio is what matters for
-trust assessment — raw counts are noise in a summary view.
+2. **`step2-agents.ts`** — replace the two attestation columns with:
+   ```typescript
+   { id: "endorsementRatio" as ColumnId, label: "Endorsement" }
+   ```
+   Remove both `attestationPositive` and `attestationNegative` columns
+   from the table display.
+
+The ratio is what matters for trust assessment — raw counts are noise
+in a summary view. Computing server-side keeps the logic in typed,
+testable Java code rather than an untyped expression string.
 
 ## Gap 3 — Trust dimensions metric
 
@@ -73,12 +86,43 @@ Replace the markdown card with:
 ```typescript
 [metric({
   title: "Trust Dimensions",
-  lookup: lookup("agents", groupBy(null, distinct("trustDimension")))
+  lookup: lookup("agents", groupBy(null, join("trustDimension", ", ")))
 })]
 ```
 
+Uses `join` (not `distinct`) to produce the dimension names as a
+comma-separated string rather than just a count. Add `join` to the
+import from `@casehubio/pages-ui`.
+
 The "Oversight Policy" card stays as markdown — it's a qualitative
 policy statement, not a numeric value.
+
+## Gap 4 — Trust routing policy table shows incorrect thresholds
+
+**Problem:** The static markdown table in `step2-agents.ts` shows
+threshold values that do not match `ClinicalTrustRoutingPolicyProvider`.
+5 of 6 rows have wrong thresholds. 3 capabilities (`irb-consultation`,
+`data-safety-monitoring`, `regulatory-submission`) fall through to
+`TrustRoutingPolicy.DEFAULT` (threshold 0.70) but the table shows
+specific values (0.75, 0.75, 0.80). Two capabilities
+(`pi-authorisation`, `trial-supervisor`) are absent from the table
+entirely despite being in `CAPABILITY_DIMENSIONS`.
+
+**Fix — remove static table, add threshold column to agents table:**
+
+1. **`step2-agents.ts`** — remove the static markdown policy table.
+   Add `threshold` as a column in the agents table:
+   ```typescript
+   { id: "threshold" as ColumnId, label: "Threshold",
+     expression: 'value != null ? value.toFixed(2) : "—"' }
+   ```
+   The `/agents` endpoint already returns `threshold` per capability
+   from `policy.threshold()` — this is purely a UI change.
+
+2. The "Below Threshold Behavior" text descriptions in the removed
+   static table had no data source and were not backed by any code
+   or configuration — they were aspirational. Removing them eliminates
+   a permanent source of drift.
 
 ## Files touched
 
@@ -86,15 +130,30 @@ policy statement, not a numeric value.
 |------|--------|
 | `TrialSite.java` | Add `targetEnrollment` field |
 | `V124__add_target_enrollment_to_trial_site.sql` | New migration |
-| `TrialDashboardResource.java` | Add field to `SiteRow`, pass through |
-| `DemoDataSeeder.java` | Set per-site targets |
+| `TrialDashboardResource.java` | Add `targetEnrollment` to `SiteRow`, add `endorsementRatio` to `AgentRow` |
+| `DemoDataSeeder.java` | Extend `addSite` with `targetEnrollment` param, set per-site targets |
 | `step1-overview.ts` | Grouped bar chart |
-| `step2-agents.ts` | Endorsement ratio, trust dimensions metric |
+| `step2-agents.ts` | Endorsement ratio column, trust dimensions `join`, threshold column, remove static policy table |
 
 ## Not changed
 
-- Trust routing policy table — stays as static markdown (qualitative
-  "below-threshold behavior" descriptions have no numeric data source)
 - Oversight policy card — stays as markdown (qualitative statement)
 - Narrative text — already accurate
 - Sites table — already has all required columns
+
+## Test plan
+
+1. **`TrialDashboardResourceTest`** — add assertions:
+   - `/sites` response includes `targetEnrollment` per site
+   - `/agents` response includes `threshold` per capability (non-null)
+   - `/agents` response includes `endorsementRatio` (null when no
+     attestations, formatted percentage string otherwise)
+
+2. **V124 migration** — exercised automatically by Flyway startup in
+   `@QuarkusTest`. No explicit migration test needed.
+
+3. **`DemoDataSeederTest`** — the seeder is `@IfBuildProfile("dev")`
+   so CDI does not register it in test profile. Full lifecycle
+   integration is covered by `ThreeSiteShowcaseTest` which exercises
+   the same service calls. Per-site target values are verified
+   indirectly through the `/sites` endpoint in dashboard tests.
