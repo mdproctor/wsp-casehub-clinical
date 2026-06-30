@@ -1,4 +1,5 @@
-# Branch Closed — issue-71-tenant-query-isolation
-**Date:** 2026-06-10
-**Issue:** #71
-**Covers:** 71
+# Branch Closed: issue-112-batch-xs-s-cleanup
+
+**Date:** 2026-06-30
+**Issues:** 112,110,111
+**Status:** merged to main
