@@ -65,10 +65,13 @@ two separate columns: `attestationPositive` and `attestationNegative`.
 
 2. **`step2-agents.ts`** — replace the two attestation columns with:
    ```typescript
-   { id: "endorsementRatio" as ColumnId, label: "Endorsement" }
+   { id: "endorsementRatio" as ColumnId, label: "Endorsement",
+     expression: 'value ?? "—"' }
    ```
    Remove both `attestationPositive` and `attestationNegative` columns
-   from the table display.
+   from the table display. The `value ?? "—"` expression handles the
+   bootstrap case (no attestation data) consistently with the trust
+   score and threshold columns.
 
 The ratio is what matters for trust assessment — raw counts are noise
 in a summary view. Computing server-side keeps the logic in typed,
