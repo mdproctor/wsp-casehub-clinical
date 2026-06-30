@@ -35,3 +35,4 @@
 | [2026-06-12-mdp01-the-event-that-fires-too-early.md](2026-06-12-mdp01-the-event-that-fires-too-early.md) | 2026-06-12 | Layer 8 ActionRiskClassifier — the engine event timing issue that blocks programmatic worker bindings |
 | [2026-06-13-mdp01-what-the-binding-schema-actually-is.md](2026-06-13-mdp01-what-the-binding-schema-actually-is.md) | 2026-06-13 | SUSAR oversight case hub, gate listener race condition, GDPR withdrawal, ComplianceSupplement |
 | [2026-06-28-mdp01-the-demo-that-reviews-itself.md](2026-06-28-mdp01-the-demo-that-reviews-itself.md) | 2026-06-28 | Demo UI backend — six spec review rounds, seven dashboard endpoints, DemoDataSeeder with Merkle verification |
+| [2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md](2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md) | 2026-06-30 | Design review catches wrong thresholds, pages DSL limitations, and the case for data-driven tables |
