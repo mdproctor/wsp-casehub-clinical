@@ -35,3 +35,5 @@
 | [2026-06-12-mdp01-the-event-that-fires-too-early.md](2026-06-12-mdp01-the-event-that-fires-too-early.md) | 2026-06-12 | Layer 8 ActionRiskClassifier — the engine event timing issue that blocks programmatic worker bindings |
 | [2026-06-13-mdp01-what-the-binding-schema-actually-is.md](2026-06-13-mdp01-what-the-binding-schema-actually-is.md) | 2026-06-13 | SUSAR oversight case hub, gate listener race condition, GDPR withdrawal, ComplianceSupplement |
 | [2026-06-28-mdp01-the-demo-that-reviews-itself.md](2026-06-28-mdp01-the-demo-that-reviews-itself.md) | 2026-06-28 | Demo UI backend — six spec review rounds, seven dashboard endpoints, DemoDataSeeder with Merkle verification |
+| [2026-06-29-mdp01-the-profile-that-didnt.md](2026-06-29-mdp01-the-profile-that-didnt.md) | 2026-06-29 | Dev-mode config — quarkus.arc.selected-alternatives ignores %dev. profile overrides |
+| [2026-06-30-mdp01-the-mutationobserver-that-shouldnt-have-been.md](2026-06-30-mdp01-the-mutationobserver-that-shouldnt-have-been.md) | 2026-06-30 | Custom web components replace inline scripts; sites endpoint; Playwright smoke tests |
