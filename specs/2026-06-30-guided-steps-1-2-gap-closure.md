@@ -83,19 +83,33 @@ testable Java code rather than an untyped expression string.
 (`"3 dimensions: safety-accuracy, eligibility-precision,
 protocol-adherence"`). It should be data-driven.
 
-**Fix — `step2-agents.ts` only:**
+**Fix — server-side computation + UI change:**
 
-Replace the markdown card with:
-```typescript
-[metric({
-  title: "Trust Dimensions",
-  lookup: lookup("agents", groupBy(null, join("trustDimension", ", ")))
-})]
-```
+The pages aggregation engine's `join` function does not deduplicate
+values before concatenation. With 8 agent rows mapping to only 3
+unique trust dimensions, `join("trustDimension", ", ")` would produce
+duplicate names. Following the Gap 2 pattern, compute server-side.
 
-Uses `join` (not `distinct`) to produce the dimension names as a
-comma-separated string rather than just a count. Add `join` to the
-import from `@casehubio/pages-ui`.
+1. **`TrialDashboardResource.AgentRow`** — add `String distinctTrustDimensions`
+   field. Compute once from `CAPABILITY_DIMENSIONS` and set on every row:
+   ```java
+   String distinctDimensions = CAPABILITY_DIMENSIONS.stream()
+       .map(pair -> pair[1])
+       .distinct()
+       .sorted()
+       .collect(Collectors.joining(", "));
+   ```
+
+2. **`step2-agents.ts`** — replace the markdown card with:
+   ```typescript
+   [metric({
+     title: "Trust Dimensions",
+     lookup: lookup("agents", groupBy(null, max("distinctTrustDimensions")))
+   })]
+   ```
+   Import `max` from `@casehubio/pages-ui`. All 8 rows carry the same
+   pre-deduplicated string; `max` on identical text values returns that
+   value.
 
 The "Oversight Policy" card stays as markdown — it's a qualitative
 policy statement, not a numeric value.
@@ -133,10 +147,10 @@ entirely despite being in `CAPABILITY_DIMENSIONS`.
 |------|--------|
 | `TrialSite.java` | Add `targetEnrollment` field |
 | `V124__add_target_enrollment_to_trial_site.sql` | New migration |
-| `TrialDashboardResource.java` | Add `targetEnrollment` to `SiteRow`, add `endorsementRatio` to `AgentRow` |
+| `TrialDashboardResource.java` | Add `targetEnrollment` to `SiteRow`, add `endorsementRatio` and `distinctTrustDimensions` to `AgentRow` |
 | `DemoDataSeeder.java` | Extend `addSite` with `targetEnrollment` param, set per-site targets |
 | `step1-overview.ts` | Grouped bar chart |
-| `step2-agents.ts` | Endorsement ratio column, trust dimensions `join`, threshold column, remove static policy table |
+| `step2-agents.ts` | Endorsement ratio column, trust dimensions `max` metric, threshold column, remove static policy table |
 
 ## Not changed
 
@@ -151,6 +165,8 @@ entirely despite being in `CAPABILITY_DIMENSIONS`.
    - `/agents` response includes `threshold` per capability (non-null)
    - `/agents` response includes `endorsementRatio` (null when no
      attestations, formatted percentage string otherwise)
+   - `/agents` response includes `distinctTrustDimensions` on every row
+     (non-null, deduplicated, sorted, comma-separated)
 
 2. **V124 migration** — exercised automatically by Flyway startup in
    `@QuarkusTest`. No explicit migration test needed.
