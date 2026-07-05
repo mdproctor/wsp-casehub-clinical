@@ -36,3 +36,4 @@
 | [2026-06-13-mdp01-what-the-binding-schema-actually-is.md](2026-06-13-mdp01-what-the-binding-schema-actually-is.md) | 2026-06-13 | SUSAR oversight case hub, gate listener race condition, GDPR withdrawal, ComplianceSupplement |
 | [2026-06-28-mdp01-the-demo-that-reviews-itself.md](2026-06-28-mdp01-the-demo-that-reviews-itself.md) | 2026-06-28 | Demo UI backend — six spec review rounds, seven dashboard endpoints, DemoDataSeeder with Merkle verification |
 | [2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md](2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md) | 2026-06-30 | Design review catches wrong thresholds, pages DSL limitations, and the case for data-driven tables |
+| [2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md](2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md) | 2026-07-05 | Explore mode gap closure + CBR roadmap — 11 field mismatches, 7 phased CBR capabilities |
