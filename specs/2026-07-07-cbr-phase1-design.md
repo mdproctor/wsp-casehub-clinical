@@ -140,18 +140,40 @@ and `TrialSite`/`ClinicalTrial` (for trialPhase). Builds the feature map
 
 ### DeviationResolutionCbrWriter
 
-`@ObservesAsync ProtocolDeviationResolvedEvent`. Loads `ProtocolDeviation` entity
-for engineCaseId, `IrbApproval` for IRB decision. Queries engine case context for
-binding completion states to construct `PlanTrace` records. If engineCaseId is
-null, empty trace.
+Observes two events:
+1. `@ObservesAsync ProtocolDeviationResolvedEvent` — initial store on PI terminal status
+2. `@ObservesAsync IrbApprovalResolvedEvent` — re-store when IRB decision arrives
 
-**Idempotency:** calls `eraseEntity(deviationId.toString(), event.tenantId())` before `store()`.
+Both handlers build the full `PlanCbrCase` from the current entity state. The
+erase-before-store pattern means the second write overwrites the first, producing
+a complete case with the actual `irbDecision`.
+
+**Why two events:** For CRITICAL deviations, `ProtocolDeviationResolvedEvent` fires
+at PI decision (terminalStatus = ESCALATED). At that point, `IrbDeviationCaseService`
+concurrently creates `IrbApproval` with `decision = PENDING` and starts the engine
+case. The IRB committee decides days later (72h deadline), firing
+`IrbApprovalResolvedEvent` with the actual decision. Without the second observer,
+CRITICAL deviations — the most important severity category — would permanently have
+`irbDecision = null` in the CBR store.
+
+**On `ProtocolDeviationResolvedEvent`:** Loads `ProtocolDeviation` entity for
+engineCaseId. Queries `IrbApproval.find("deviationId", deviationId)` — may be null
+or PENDING for CRITICAL deviations at this point. Queries engine case context for
+binding completion states to construct `PlanTrace` records. If engineCaseId is null,
+empty trace.
+
+**On `IrbApprovalResolvedEvent`:** Uses `event.deviationId()` and `event.tenantId()`
+to reload the deviation entity and rebuild the full CBR case. `IrbApproval` now
+has the actual `decision` (APPROVED/REJECTED/DEFERRED/EXPIRED). The `PlanTrace`
+may also be more complete (engine case bindings may have progressed).
+
+**Idempotency:** calls `eraseEntity(deviationId.toString(), tenantId)` before `store()`.
 
 **`store()` parameters:**
 - `caseType` = `"clinical-deviation"`
 - `entityId` = `deviationId.toString()`
 - `domain` = `ClinicalCbrDomains.DEVIATION`
-- `tenantId` = `event.tenantId()`
+- `tenantId` = from event (`ProtocolDeviationResolvedEvent.tenantId()` or `IrbApprovalResolvedEvent.tenantId()`)
 - `caseId` = `deviation.engineCaseId != null ? deviation.engineCaseId.toString() : null`
 
 ### AmendmentResolutionCbrWriter
