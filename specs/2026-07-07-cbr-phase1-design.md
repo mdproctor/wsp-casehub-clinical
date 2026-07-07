@@ -42,6 +42,7 @@ Stored on `AeEscalationCompletedEvent`. `caseType = "clinical-ae"`.
 - `problem` = structured narrative: `"Grade {grade} {eventType} in {trialPhase} trial, unexpected={unexpected}, suspected={suspected}"`
 - `solution` = resolution summary: `"Safety review: {safetyReviewOutcome}. DSMB escalated: {dsmbEscalated}. IND report: {indReportFiled}. SUSAR oversight: {susarOversight}."`
 - `outcome` = `"COMPLETED"` (all escalation cases that fire `AeEscalationCompletedEvent` completed successfully)
+- `confidence` = `1.0` — completed case with definitive outcome (ground truth)
 
 **Data access — `trialPhase`:** The writer loads `TrialSite.findById(event.siteId())` → `ClinicalTrial.findById(site.trialId)` → `trial.phase`. Two-hop traversal from event data.
 
@@ -80,6 +81,7 @@ Stored on `ProtocolDeviationResolvedEvent`. `caseType = "clinical-deviation"`.
 - `problem` = structured narrative: `"{severity} {deviationType} at site, escalation={escalationRequirement}"`
 - `solution` = resolution summary: `"PI decision: {piDecision}. IRB decision: {irbDecision or N/A}."`
 - `outcome` = `terminalStatus.name()` (APPROVED/REJECTED/EXPIRED/ESCALATED)
+- `confidence` = `1.0` — completed case with definitive outcome (ground truth)
 
 **Plan trace** — from the deviation-review engine case bindings:
 - `pi-oversight` binding → step outcome (DONE/DECLINE/EXPIRED)
@@ -114,6 +116,7 @@ No structured features. Pure text:
 - `problem` = the `proposedChange` text from `ProtocolAmendment.proposedChange`
 - `solution` = advisor recommendation name: `amendment.supervisorRecommendation.name()` (PROCEED/HALT/REFER_TO_DSMB)
 - `outcome` = terminal status: `amendment.status.name()` (APPROVED/HALTED/SUPERVISED)
+- `confidence` = `1.0` — completed case with definitive outcome (ground truth)
 
 ## CBR Writers
 
@@ -169,6 +172,22 @@ for proposedChange, supervisorRecommendation, and status. Stores a `TextualCbrCa
 `ProtocolAmendmentStatusUpdater` when status reaches any terminal state (APPROVED,
 HALTED, or SUPERVISED). One `fireAsync()` call added to each of the three terminal
 branches in `applyRecommendation()`, consistent with AE and deviation event patterns.
+
+```java
+public record ProtocolAmendmentResolvedEvent(
+    UUID amendmentId,
+    UUID trialId,
+    ProtocolAmendmentStatus terminalStatus,
+    AmendmentRecommendation recommendation,
+    String tenantId
+) {}
+```
+
+`amendmentId` — primary lookup key for the writer. `tenantId` — avoids an entity
+reload for tenant scoping (same pattern as `ProtocolDeviationResolvedEvent`).
+`trialId` — enables future routing without entity traversal. `terminalStatus` and
+`recommendation` — carried for downstream consumers that don't need a full entity
+load (e.g., notification listeners).
 
 **Transaction safety:** `applyRecommendation()` is `@Transactional(REQUIRES_NEW)`.
 The `fireAsync()` call dispatches the event asynchronously before the transaction
@@ -231,8 +250,17 @@ but precedent queries need trial-wide visibility.
 
 ### GET /trials/{trialId}/amendments/{amendmentId}/precedents
 
-Builds query with `problem = amendment.proposedChange` for text matching.
-`vectorWeight = 0.0`. Returns `List<AmendmentPrecedentResponse>`.
+Returns `List<AmendmentPrecedentResponse>`. `vectorWeight = 0.0`.
+
+**Phase 1 limitation:** `TextualCbrCase` has no structured features. With
+`vectorWeight = 0.0`, the `problem` text field is not used for matching —
+`InMemoryCbrCaseMemoryStore` scores only on features, and
+`CbrSimilarityScorer.score()` returns 1.0 when features are empty. In Phase 1,
+this endpoint returns all stored amendment cases for the tenant (up to `topK`)
+with `score = 1.0` — effectively a recent amendments list, not similarity-ranked.
+This is still useful: PIs see what other amendments have been proposed and how they
+were decided. Phase 3 (semantic text embeddings, neocortex#83) activates text-based
+similarity matching via `vectorWeight > 0`, making this a true precedent query.
 
 All three endpoints `@RolesAllowed` consistent with parent resource. Scoped by
 `tenantId` from `CurrentPrincipal`.
@@ -241,11 +269,14 @@ All three endpoints `@RolesAllowed` consistent with parent resource. Scoped by
 
 ```java
 record AePrecedentResponse(double score, String grade, String eventType,
-    String safetyReviewOutcome, boolean dsmbEscalated, String problem, String outcome)
+    String trialPhase, boolean unexpected, boolean suspected,
+    String safetyReviewOutcome, boolean dsmbEscalated,
+    boolean indReportFiled, boolean susarOversight,
+    String problem, String outcome)
 
 record DeviationPrecedentResponse(double score, String deviationType, String severity,
-    String piDecision, String irbDecision, List<PlanStepResponse> steps,
-    String problem, String outcome)
+    String escalationRequirement, String piDecision, String irbDecision,
+    List<PlanStepResponse> steps, String problem, String outcome)
 
 record PlanStepResponse(String bindingName, String capabilityName, String stepOutcome)
 
