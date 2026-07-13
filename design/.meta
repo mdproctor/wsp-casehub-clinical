@@ -1,0 +1,9 @@
+branch: issue-128-sx-runtime-fixes
+project-sha: 2feeca481617dfb46b2d4d75fabbb6eb885be5cb
+date: 2026-07-13
+issue: 128
+issue-repo: casehubio/clinical
+covers: 128
+flyway-next-v: none
+design-repo: workspace
+design-section-hashes: 
