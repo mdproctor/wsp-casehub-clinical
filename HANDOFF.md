@@ -1,24 +1,18 @@
-*Updated: #87 closed — removed from backlog.*
-
 # Session Handover — 2026-07-14
 
 ## Last Session
 
-Closed #128 — S/XS runtime fixes. Fixed Clock CDI ambiguity (qhorus ClockProducer), engine memory store renames (InMemoryPlanItemStore/InMemorySubCaseGroupRepository), un-stubbed governance endpoint (WorkerDecisionEntry exists in casehub-engine-ledger), added EligibilityScreeningLedgerWriter.writeResolutionEntry() with 3 tests, made DemoDataSeeder SUSAR resilient (per-lifecycle catch). Also fixed #129 (SNAPSHOT API breakages — 21 files across engine, qhorus, neocortex type changes) and #127 (webui demo mode — JSONata expressions, CSV alignment, CBR fallback).
-
-Fixed flaky ProtocolAmendmentIntegrationTest (test ordering) and ThreeSiteShowcaseTest (cancelAllAndClear + @Tag("showcase") isolation from default suite). 558/558 tests pass.
-
-Design review completed for blocks-ui channel-activity-promotion spec (5 rounds, 18 issues, $16.25).
+Closed #130 — SNAPSHOT compatibility fixes for engine reactive SPIs, work-core strategy discovery, neocortex MemoryEntry, and after-commit CDI event firing. Dev mode starts in 7.3s with all 7 demo phases completing (3/3 SUSARs). 558/558 tests pass. 3 garden entries submitted (2 new gotchas + 1 revise).
 
 ## Immediate Next Step
 
-Run `mvn quarkus:dev` to verify dev mode startup with all config fixes. The Clock ambiguity, memory store renames, and reactive suppression are all in place.
+Run `mvn quarkus:dev` and test the webui with `VITE_DEMO_MODE=false` against the running Quarkus server — all config fixes are landed and demo data seeds completely.
 
 ## What's Left
 
 - **Live mode** — test webui with `VITE_DEMO_MODE=false` against running Quarkus · M · Med
 - `#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
-- **Governance endpoint** — now wired but untested end-to-end with live SUSAR case · S · Med
+- **Governance endpoint** — wired but untested end-to-end with live SUSAR case · S · Med
 
 ## What's Next
 
@@ -32,7 +26,6 @@ Run `mvn quarkus:dev` to verify dev mode startup with all config fixes. The Cloc
 
 ## Cross-Repo
 
-- engine#719 — SNAPSHOT consistency (resolved by #129 clinical-side fixes)
-- engine#724 — EngineStrategyResolver + work-core Jandex (resolved in engine)
-- neocortex#149 — FeatureValue.of() Boolean support (filed)
-- blocks-ui channel-activity-promotion design review complete (5 rounds, all issues resolved)
+- engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
+- neocortex#68 — blocks #78 (CBR over AE history)
+- neocortex#149 — filed: FeatureValue.of() Boolean support
