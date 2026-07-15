@@ -22,10 +22,9 @@ Run `mvn quarkus:dev` and test the webui with `VITE_DEMO_MODE=false` against the
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | Deferred |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | Deferred |
 | #86 | Wire ProtocolAmendmentAdvisor | M | High | Blocked: engine#101 |
-| #78 | CBR over AE history | L | High | Blocked: neocortex#68 |
+| #78 | CBR over AE history | L | High | Unblocked — neocortex#68 closed |
 
 ## Cross-Repo
 
 - engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
-- neocortex#68 — blocks #78 (CBR over AE history)
 - neocortex#149 — filed: FeatureValue.of() Boolean support
