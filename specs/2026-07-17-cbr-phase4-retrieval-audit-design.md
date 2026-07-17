@@ -67,7 +67,7 @@ When `retrieveSimilar()` returns an empty list, the full pipeline still executes
 
 | Field | Type | Purpose |
 |---|---|---|
-| `traceId` | `String` | UUID correlating ledger entry with REST response |
+| `retrievalTraceId` | `String` | UUID correlating ledger entry with REST response (column: `retrieval_trace_id` — avoids shadowing `LedgerEntry.traceId` which is the OTel trace correlation field on the base `ledger_entry` table) |
 | `queryDomain` | `String` | "clinical-ae", "clinical-deviation", or "clinical-amendment" |
 | `queryFeaturesSummary` | `String` | Compact query features: "grade=3,eventType=Neutropenia,trialPhase=PHASE_III" |
 | `retrievedCaseCount` | `int` | Number of precedents returned |
@@ -79,7 +79,7 @@ When `retrieveSimilar()` returns an empty list, the full pipeline still executes
 - `actorId`: the human or agent who triggered the consultation
 - `domainContentBytes()` field order (load-bearing for Merkle chain integrity):
   ```java
-  String.join("|", traceId, queryDomain, queryFeaturesSummary,
+  String.join("|", retrievalTraceId, queryDomain, queryFeaturesSummary,
       String.valueOf(retrievedCaseCount), String.valueOf(topScore),
       explanationText != null ? explanationText : "")
       .getBytes(StandardCharsets.UTF_8)
@@ -135,15 +135,16 @@ Computes score distribution and confidence band statistics from `TracedCase` fie
 ```java
 @Transactional(TxType.REQUIRES_NEW)
 public void record(CbrRetrievalTrace trace, String explanation,
-                   UUID subjectId, String actorId, String tenantId)
+                   UUID subjectId, String actorId)
 ```
 
 - Constructs `CbrRetrievalLedgerEntry`
 - Sets `entryType = LedgerEntryType.EVENT` — a retrieval is an observed event (something happened), not a state-changing command or attestation
-- Sets `actorRole = "cbr-retrieval-auditor"` — the system role that wrote the entry; the human/agent who triggered the consultation is in `actorId`
-- Sets `actorId = ClinicalActors.CLINICAL_SERVICE`, `actorType = ActorType.SYSTEM`
+- Sets `actorRole = "cbr-retrieval-auditor"` — the system role that wrote the entry
+- Sets `actorId` from the method parameter (the human or agent who triggered the consultation — passed from `principal.actorId()` at the endpoint). Sets `actorType = ActorType.USER` — all current callers are REST endpoints with human principals. Follows the human-initiated pattern (`DeviationLedgerWriter.writeResolutionEntry()`) not the system-initiated pattern (`AdverseEventLedgerWriter.writeReportEntry()`), because CBR retrieval is triggered by a clinician clicking "find precedents," not by the system autonomously
 - Serialises query features to summary string
 - Attaches `ClinicalComplianceSupplement.cbrRetrieval()` (new factory method)
+- Persists via `ledgerEntryRepository.save(entry, "default")` — hardcoded datasource name matching all 10 existing writers (no `tenantId` parameter; `entry.tenancyId` set to `"default"`)
 - `REQUIRES_NEW` so the audit entry persists regardless of caller transaction state — the AI system queried the case base, and that fact must be recorded even if the caller's endpoint transaction rolls back
 
 ### ClinicalCbrService Enhancement
@@ -213,6 +214,6 @@ s.humanOverrideAvailable = true;
 |---|---|
 | `ClinicalExplanationRendererTest` | Correct FDA-structured text for AE/deviation/amendment domains; empty results; null confidence handling |
 | `CbrRetrievalLedgerWriterTest` | Entry construction, `domainContentBytes()`, compliance supplement attachment, sequence numbering |
-| `ClinicalCbrServiceAuditTest` | `retrieveWithAudit()` pipeline: calls retrieve → builds trace → renders → writes ledger → returns result with traceId |
+| `ClinicalCbrServiceAuditTest` | `retrieveWithAudit()` pipeline: calls retrieve → builds trace → renders → writes ledger → returns result with traceId. **Failure paths:** render throws → explanation=null, ledger entry still written with null explanation, result returned; record throws → exception propagates, caller gets no results (compliance boundary enforcement) |
 | `CbrRetrievalAuditIntegrationTest` | `@QuarkusTest` end-to-end: store a case, retrieve with audit, verify ledger entry persisted, verify explanation in response |
 | Existing `TrialDashboardResourceTest` | Updated assertions for wrapper response shape (`traceId`, `explanation`, `precedents`) |
