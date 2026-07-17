@@ -1,3 +1,5 @@
+*Updated: neocortex#149 closed — removed from cross-repo.*
+
 # Session Handover — 2026-07-17
 
 ## Last Session
@@ -29,4 +31,3 @@ Run `mvn quarkus:dev` and test the webui with `VITE_DEMO_MODE=false` — all con
 - engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
 - engine#741 — filed: humanTask routing enrichment via CBR plan traces
 - parent#375 — filed: update casehub-clinical.md for CaseOutcomeObserver
-- neocortex#149 — filed: FeatureValue.of() Boolean support
