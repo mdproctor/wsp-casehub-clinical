@@ -1,0 +1,9 @@
+branch: issue-117-cbr-phase4-outcome-audit
+project-sha: 54d4d4b17d9341ca6a9d794f7329ac88b0de030e
+date: 2026-07-17
+issue: 117
+issue-repo: casehubio/clinical
+covers: 117
+flyway-next-v: unknown
+design-repo: workspace
+design-section-hashes: 
