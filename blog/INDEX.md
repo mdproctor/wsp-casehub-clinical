@@ -37,3 +37,4 @@
 | [2026-06-28-mdp01-the-demo-that-reviews-itself.md](2026-06-28-mdp01-the-demo-that-reviews-itself.md) | 2026-06-28 | Demo UI backend — six spec review rounds, seven dashboard endpoints, DemoDataSeeder with Merkle verification |
 | [2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md](2026-06-30-mdp01-when-your-demo-lies-about-thresholds.md) | 2026-06-30 | Design review catches wrong thresholds, pages DSL limitations, and the case for data-driven tables |
 | [2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md](2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md) | 2026-07-05 | Explore mode gap closure + CBR roadmap — 11 field mismatches, 7 phased CBR capabilities |
+| [2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md](2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md) | 2026-07-16 | The race condition that killed the two-phase write |
