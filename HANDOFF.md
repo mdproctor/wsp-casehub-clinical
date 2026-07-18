@@ -1,3 +1,5 @@
+*Updated: parent#375 closed — removed from cross-repo.*
+
 # Session Handover — 2026-07-18
 
 ## Last Session
@@ -26,4 +28,3 @@ Dev mode + live mode verification — test webui against running Quarkus. All fi
 
 - engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
 - engine#741 — filed: humanTask routing enrichment via CBR plan traces
-- parent#375 — filed: update casehub-clinical.md for CaseOutcomeObserver
