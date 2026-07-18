@@ -1,24 +1,25 @@
-# Session Handover — 2026-07-17
+# Session Handover — 2026-07-18
 
 ## Last Session
 
-Closed #117 — CBR Phase 4: retrieval audit trail. Every CBR precedent consultation now produces a tamper-evident `CbrRetrievalLedgerEntry` and FDA-structured explanation text via `ClinicalExplanationRenderer`. Three endpoints return wrapper responses with `traceId` + `explanation`. Design-reviewed (3 rounds, 15 issues, all resolved). Fixed neocortex SNAPSHOT breaks (`CbrQuery.of()` + `CbrCaseMemoryStore.store()` gained `Path scope` parameter). Garden entry GE-20260717-0489d1 submitted. 591/591 tests pass.
+Closed #127, #125, #126, #123 on branch `issue-127-webui-s-fixes`. Three of four were already resolved — CSV field alignment (#125), GDPR erasure dialog (#126), and most of #127 (JSONata, CBR demo mode). Real work: CSV column headers aligned to backend record field names across 6 datasets, SiteRow gained `siteName`, and Work Queue migrated from `table()` to `<work-item-inbox>` with WorkIdentity and type-discriminated navigation (#123). Hygiene recovered 1 blog + 3 specs from closed branches. Filed #131 for CDI Clock ambiguity (qhorus SNAPSHOT drift).
 
 ## Immediate Next Step
 
-Run `mvn quarkus:dev` and test the webui with `VITE_DEMO_MODE=false` — precedent panels now return `{ traceId, explanation, precedents }` instead of bare arrays. Verify the UI handles the wrapper correctly.
+Fix #131 — CDI Clock ambiguity blocks `mvn install` in production mode. Either exclude qhorus `ClockProducer` or remove `ClinicalClockProducer`.
 
 ## What's Left
 
-- **Live mode** — test webui against running Quarkus · M · Med
+- `#131` — CDI Clock ambiguity (production augmentation failure) · S · Low
 - `#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
-- **Governance endpoint** — wired but untested end-to-end with live SUSAR case · S · Med
+- **Live mode** — test webui against running Quarkus (all datasets now field-aligned) · M · Med
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| — | Dev mode + live mode verification | M | Med | All config fixes landed; response shapes changed |
+| #131 | Fix CDI Clock ambiguity | S | Low | Blocks production build |
+| — | Dev mode + live mode verification | M | Med | All field alignment done |
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | Deferred |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | Deferred |
 | #86 | Wire ProtocolAmendmentAdvisor | M | High | Blocked: engine#101 |
