@@ -1,14 +1,12 @@
-*Updated: parent#375 closed — removed from cross-repo.*
-
-# Session Handover — 2026-07-18
+# Session Handover — 2026-07-19
 
 ## Last Session
 
-Fixed #131 — CDI Clock ambiguity blocking production builds. One-line fix: added qhorus `ClockProducer` to `%prod.quarkus.arc.exclude-types`, matching test and dev profiles that already excluded it. Root cause: qhorus SNAPSHOT added its own `ClockProducer` (`@Produces Clock`) which conflicted with clinical's `ClinicalClockProducer`.
+Shipped #118 — CBR Phase 5: learned escalation plans for AE response. `ClinicalPlanAdapter` implements the neocortex `PlanAdapter` SPI with four clinical adaptation rules (outcome suppression/boost, grade escalation boost, SUSAR addition). `AeEscalationPlanRetriever` orchestrates retrieval+adaptation and injects advisory recommendations into the AE escalation case context. REST endpoint at `/api/adverse-events/{aeId}/escalation-plans` for on-demand queries. Design review ($25.66, 9 rounds, 17 issues all resolved). 614 tests pass.
 
 ## Immediate Next Step
 
-Dev mode + live mode verification — test webui against running Quarkus. All field alignment is done (from previous session), production build is now unblocked.
+Pick from What's Next — dev mode + live mode verification is the natural follow-up, or guided mode steps.
 
 ## What's Left
 
@@ -19,12 +17,15 @@ Dev mode + live mode verification — test webui against running Quarkus. All fi
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| — | Dev mode + live mode verification | M | Med | Production build now works |
+| — | Dev mode + live mode verification | M | Med | Production build has pre-existing engine SNAPSHOT CDI issue |
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | Deferred |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | Deferred |
 | #86 | Wire ProtocolAmendmentAdvisor | M | High | Blocked: engine#101 |
+| #119 | CBR Phase 6: AE trajectory monitoring | L | High | |
+| #120 | CBR Phase 7: multi-scope DSMB | L | High | |
 
 ## Cross-Repo
 
 - engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
 - engine#741 — filed: humanTask routing enrichment via CBR plan traces
+- parent#376 — filed: update casehub-clinical.md for CBR Phase 5 PlanAdapter
