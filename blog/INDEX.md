@@ -39,3 +39,4 @@
 | [2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md](2026-07-05-mdp01-explore-gaps-and-cbr-roadmap.md) | 2026-07-05 | Explore mode gap closure + CBR roadmap — 11 field mismatches, 7 phased CBR capabilities |
 | [2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md](2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md) | 2026-07-16 | The race condition that killed the two-phase write |
 | [2026-07-17-mdp02-three-already-done.md](2026-07-17-mdp02-three-already-done.md) | 2026-07-17 | Three already done and one that wasn't |
+| [2026-07-19-mdp01-when-the-system-remembers-what-worked.md](2026-07-19-mdp01-when-the-system-remembers-what-worked.md) | 2026-07-19 | When the system remembers what worked |
