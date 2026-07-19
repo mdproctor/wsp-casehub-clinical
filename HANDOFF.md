@@ -1,3 +1,5 @@
+*Updated: engine#741 closed — removed from cross-repo.*
+
 # Session Handover — 2026-07-19
 
 ## Last Session
@@ -27,5 +29,4 @@ Pick from What's Next — dev mode + live mode verification is the natural follo
 ## Cross-Repo
 
 - engine#101 — blocks #86 (ProtocolAmendmentAdvisor wiring)
-- engine#741 — filed: humanTask routing enrichment via CBR plan traces
 - parent#376 — filed: update casehub-clinical.md for CBR Phase 5 PlanAdapter
