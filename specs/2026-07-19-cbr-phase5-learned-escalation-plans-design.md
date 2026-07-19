@@ -28,15 +28,17 @@ Integration point: `AeEscalationCaseService.prepareAndMarkRequested()` injects t
 
 **Adaptation tracking:** `TrackingPlanAdapter` (neocortex `@Decorator`, activated by `casehub.cbr.adaptation-tracking.enabled=true`) automatically wraps this adapter, recording `AdaptationTrace` events via CDI for FDA audit compliance. No code changes needed — the decorator is transparent to `ClinicalPlanAdapter`.
 
-Processes each `PlanTrace` step from the retrieved case and assigns an `AdaptationAction` + priority + reason. Four rules evaluated in order:
+Processes each `PlanTrace` step from the retrieved case and assigns an `AdaptationAction` + priority + reason. All rule conditions extract values from the feature maps passed to `PlanAdapter.adapt()` — the adapter has no access to domain entities (`AdverseEvent`, etc.), only to `currentFeatures` (`Map<String, FeatureValue>`) and `retrieved.cbrCase().features()`. Grade values are `NumberVal` (stored as `ae.grade.ordinal() + 1`); `unexpected`/`suspected` are `StringVal` (stored as `String.valueOf(boolean)`, producing `"true"`/`"false"`). If a required feature key is absent from either map, the rule that depends on it is skipped.
 
-**Rule 1 — Outcome-based suppression.** Step `stepOutcome` was `FAILED` or `TERMINATED` → `SUPPRESSED`, priority 0. Reason: "Step failed in past similar case."
+Four rules evaluated in order:
 
-**Rule 2 — Outcome-based boost.** Step `stepOutcome` was `COMPLETED` → `BOOSTED`, priority 10. Reason: "Step succeeded in past similar case (similarity: X.XX)."
+**Rule 1 — Outcome-based suppression.** Step `stepOutcome` is `"FAILED"` or `"TERMINATED"` → `SUPPRESSED`, priority 0. Reason: `"Step failed in past similar case."`
 
-**Rule 3 — Grade escalation boost.** Current AE grade > retrieved case's grade → all steps with safety-related capabilities (`safety-monitoring`, `data-safety-monitoring`) get +5 priority (additive with Rule 2, applied after). Reason: "Higher severity than precedent — elevated urgency."
+**Rule 2 — Outcome-based boost.** Step `stepOutcome` is `"COMPLETED"` → `BOOSTED`, priority 10. Reason: `"Step succeeded in past similar case (similarity: X.XX)."`
 
-**Rule 4 — SUSAR addition.** Current AE has `unexpected=true` AND `suspected=true` but retrieved case did not → ADD a synthetic step with all `AdaptedStep` fields:
+**Rule 3 — Grade escalation boost.** Applies only to non-SUPPRESSED steps (i.e., steps assigned BOOSTED or RETAINED by Rules 1–2). Condition: `currentFeatures.get("grade")` (`NumberVal`) > `retrieved.cbrCase().features().get("grade")` (`NumberVal`). When true, all non-SUPPRESSED steps with safety-related capabilities (`safety-monitoring`, `data-safety-monitoring`) get +5 priority. Reason: `"Higher severity than precedent — elevated urgency."` When Rule 3 applies on top of Rule 2, the reason is concatenated: `"Step succeeded in past similar case (similarity: X.XX). Higher severity than precedent — elevated urgency."` When Rule 3 applies to a RETAINED step, it sets the reason directly (replacing `null`).
+
+**Rule 4 — SUSAR addition.** Condition: `currentFeatures.get("unexpected")` is `StringVal("true")` AND `currentFeatures.get("suspected")` is `StringVal("true")`, AND the retrieved case does not have both (`unexpected ≠ "true"` or `suspected ≠ "true"` in `retrieved.cbrCase().features()`). When true, ADD a synthetic step with all `AdaptedStep` fields:
 - `bindingName`: `"susar-oversight"`
 - `capabilityName`: `"susar-review"`
 - `workerName`: `null` (synthetic step — no historical worker)
@@ -120,10 +122,9 @@ Same pattern as existing `patientContext` and `siteContext` injection. The retri
 **Endpoint:** `GET /api/adverse-events/{aeId}/escalation-plans`
 **Security:** `@RolesAllowed({SPONSOR, INVESTIGATOR, COORDINATOR, MONITOR})`
 
-Returns `EscalationPlanRecommendation` as JSON — queryable at any point during the AE lifecycle.
+Returns `EscalationPlanRecommendation` as JSON — queryable at any point during the AE lifecycle. Response uses `@JsonInclude(NON_NULL)` — null fields are omitted. The `adaptedPlan.steps` list is hoisted to a top-level `steps` array via a response DTO projection.
 
-- Looks up AE, enrollment, trial, prior AE count
-- Calls `AeEscalationPlanRetriever.retrieve()` — same path as injection flow
+- Looks up AE by ID, calls `AeEscalationPlanRetriever.retrieve()` — same path as injection flow
 - 404 if AE not found; 200 with `retrievedCaseCount: 0` if no similar cases
 
 Response shape:
@@ -135,14 +136,20 @@ Response shape:
   "traceId": "uuid",
   "explanation": "3 similar past cases found...",
   "steps": [
-    { "bindingName": "safety-review", "capability": "safety-monitoring",
+    { "bindingName": "safety-review", "capabilityName": "safety-monitoring",
+      "workerName": "safety-monitor-worker", "stepOutcome": "COMPLETED",
       "action": "BOOSTED", "priority": 15,
-      "reason": "Step succeeded in past similar case (similarity: 0.87)" },
-    { "bindingName": "dsmb-escalation", "capability": "data-safety-monitoring",
-      "action": "RETAINED", "priority": 5, "reason": null },
-    { "bindingName": "susar-oversight", "capability": "susar-review",
+      "parameters": {},
+      "reason": "Step succeeded in past similar case (similarity: 0.87). Higher severity than precedent — elevated urgency." },
+    { "bindingName": "dsmb-escalation", "capabilityName": "data-safety-monitoring",
+      "workerName": "dsmb-escalation-worker", "stepOutcome": "COMPLETED",
+      "action": "BOOSTED", "priority": 15,
+      "parameters": {},
+      "reason": "Step succeeded in past similar case (similarity: 0.87). Higher severity than precedent — elevated urgency." },
+    { "bindingName": "susar-oversight", "capabilityName": "susar-review",
       "action": "ADDED", "priority": 20,
-      "reason": "Current AE meets SUSAR criteria — not present in precedent case" }
+      "parameters": {},
+      "reason": "Current AE meets SUSAR criteria — not present in precedent case." }
   ]
 }
 ```
@@ -153,7 +160,7 @@ Response shape:
 
 | Test class | Covers |
 |------------|--------|
-| `ClinicalPlanAdapterTest` | Each adaptation rule independently: outcome suppression, outcome boost, grade escalation boost, SUSAR addition, passthrough for non-AE case types, combined rules on same plan |
+| `ClinicalPlanAdapterTest` | Each adaptation rule independently: outcome suppression, outcome boost, grade escalation boost, SUSAR addition, passthrough for non-AE case types, combined rules on same plan, Rule 3 exclusion for SUPPRESSED steps (priority stays 0), reason concatenation when Rules 2+3 combine, missing feature graceful skip |
 | `AeEscalationPlanRetrieverTest` | Mock ClinicalCbrService + PlanAdapter — retrieval→adaptation→recommendation flow, empty results, exception resilience |
 | `EscalationPlanRecommendationTest` | `none()` factory, `hasRecommendation()`, `toContextMap()` serialisation |
 
