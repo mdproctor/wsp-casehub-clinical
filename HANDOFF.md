@@ -1,31 +1,26 @@
-# Session Handover — 2026-07-20
+# Session Handover — 2026-07-21
 
 ## Last Session
 
-Shipped #119 — CBR Phase 6: AE progression trajectory monitoring. `AeTrajectoryBuilder` lazily reconstructs trajectories from PlanItemStore across all three engine case IDs (escalation, SUSAR, regulatory). `AeTrajectoryAlertService` evaluates trajectory matches via DTW with weighted majority voting for predicted outcomes. `SiteEnrollmentTrajectoryBuilder` tracks enrollment rates by week. Lifecycle hooks in 6 existing services. 3 REST endpoints. Design review ($19.95, 5 rounds, 19 issues resolved). Forage entry GE-20260720-b7a8b9 submitted (eraseEntity cross-domain gotcha). Pre-existing `PiResponseListenerIntegrationTest` flake and `RiskDecision.GateRequired` SNAPSHOT breakage unchanged.
+Shipped demo readiness batch (#137, #133, #134, #136, #138). Fixed 3 engine SNAPSHOT breakages (RiskDecision.GateRequired, ActionGateApprovedEvent, Connector.send). Added TrajectoryAlertListener with AE blackboard flags. Seeded 13 staggered enrollment patients and 5 historical trajectory CBR cases. Added SiteEnrollmentTrajectoryJob for periodic snapshots. Fixed CBR eventType schema (categorical → categoricalList) and trajectory timestamp coalescing. Dev mode verified — Quarkus boots, demo data seeds, enrollment trajectories return weekly data. Forage entry GE-20260721-621a64 submitted (CBR CategoricalList cascade gotcha).
 
 ## Immediate Next Step
 
-Pick from What's Next — dev mode verification or guided mode steps.
+Pick from What's Next — guided mode steps or CBR Phase 7.
 
 ## What's Left
 
 - `#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
-- `#133` — Alert event consumers (notification wiring) · S · Med
-- `#134` — DemoDataSeeder trajectory data · S · Low
 - `#135` — AE grade regrading · M · Med
-- `#136` — Site enrollment scheduled periodic storage · S · Low
-- **Live mode** — test webui against running Quarkus · M · Med
-- **SNAPSHOT breakage** — `RiskDecision.GateRequired` constructor signature changed in engine SNAPSHOT · S · Low
+- **PiResponseListenerIntegrationTest** — pre-existing flake, 2 errors in full test suite
 
 ## What's Next
 
 | # | Description | Scale | Complexity | Notes |
 |---|-------------|-------|------------|-------|
-| — | Dev mode + live mode verification | M | Med | RiskDecision.GateRequired SNAPSHOT breakage must be fixed first |
-| #133 | Alert notification wiring | S | Med | Connect trajectory alerts to Slack/email |
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | Deferred |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | Deferred |
+| #135 | AE grade regrading | M | Med | Standalone |
 | #86 | Wire ProtocolAmendmentAdvisor | M | High | Blocked: engine#101 |
 | #120 | CBR Phase 7: multi-scope DSMB | L | High | |
 
