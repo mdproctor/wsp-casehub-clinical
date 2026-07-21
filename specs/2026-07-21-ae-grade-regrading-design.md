@@ -118,7 +118,6 @@ history entity records initial reports with `previousGrade=null` (D3), but
 no event is fired for those. The `siteId` field is derived from
 `PatientEnrollment.findById(ae.enrollmentId).siteId` — same lookup as
 `reportAdverseEvent()` (see Service Layer below).
-```
 
 ## Service Layer
 
