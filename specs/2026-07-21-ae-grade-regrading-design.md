@@ -141,7 +141,13 @@ regradeAdverseEvent(UUID aeId, CtcaeGrade newGrade, String changedBy, String rea
     7. Ledger: write AeGradeChangeLedgerEntry
     8. Derive siteId: PatientEnrollment enrollment = PatientEnrollment.findById(ae.enrollmentId)
        UUID siteId = enrollment != null ? enrollment.siteId : null
-    9. After-commit: fire AeGradeChangedEvent(aeId, ae.enrollmentId, siteId,
+       TrialSite site = siteId != null ? TrialSite.findById(siteId) : null
+       UUID trialId = site != null ? site.trialId : null
+    9. Memory store: memoryService.storeAeRegrade(aeId, ae.enrollmentId, siteId,
+       trialId, previousGrade, newGrade, ae.tenantId)
+       — stores a regrade event in patient, site, and drug memory domains so
+       subsequent escalation context queries reflect the updated grade
+   10. After-commit: fire AeGradeChangedEvent(aeId, ae.enrollmentId, siteId,
        previousGrade, newGrade, now, changedBy, ae.tenantId)
        — same TransactionSynchronizationRegistry pattern as reportAdverseEvent()
 ```
@@ -195,9 +201,14 @@ If the new grade crosses the Grade 3 threshold (`previousGrade < GRADE_3`,
    the same three-phase pattern (prepare-and-mark, startCase().join(),
    persistCaseId) but accepts regrade context directly instead of
    `AdverseEventReportedEvent`.
+3. **Signal trial safety** for Grade 4/5 upgrades: call
+   `TrialSafetySignalService.signalGrade4Active(siteId)` after case
+   creation — same as `AeEscalationCaseService.onAdverseEventReported()`
+   (line 53) does for initial Grade 4/5 reports.
 
-If an engine case already exists (Grade 3→4 upgrade): no action needed — the
-case is already active.
+If an engine case already exists (Grade 3→4 upgrade): the escalation case
+is already active, but `signalGrade4Active` must still be called if the
+new grade is 4/5 — the signal is site-level and additive.
 
 ### SUSAR criteria re-evaluation
 
@@ -237,6 +248,24 @@ Calls `AeTrajectoryAlertService.evaluate(event.aeId(), event.tenantId())`.
 The method takes `(UUID aeId, String tenantId)` — it loads the AE from the
 database internally, so the updated grade is picked up automatically.
 
+### Safety officer notification
+
+**Listener:** `AeGradeChangeSafetyOfficerListener` observes `@ObservesAsync
+AeGradeChangedEvent`, gates on `event.isUpgrade()`.
+
+Delegates to a new method on `SafetyOfficerNotificationListener` (or a shared
+notification service) that constructs a regrade-specific notification. The
+notification must distinguish a grade upgrade from an initial report — the
+message content should include the grade transition (`previousGrade →
+newGrade`) and reason, not present the regrade as a new AE report.
+
+Uses the same infrastructure as `onAeReported()`: resolves `TrialSite` →
+`ClinicalTrial`, checks `safetyOfficerConnectorId`/`safetyOfficerDestination`
+config, calls `SafetyOfficerNotifier.notify()`, writes ledger entries for
+success/skip/failure outcomes. The ledger-backed audit trail is required for
+GCP compliance — a Grade 1→3 upgrade that triggers 24h SLA and an engine
+case must also trigger the safety officer notification channel.
+
 ## Trajectory Integration
 
 ### AeTrajectoryBuilder changes
@@ -253,10 +282,32 @@ private static class Observation {
 }
 ```
 
-The `doBuild()` method queries `AeGradeChange.findByAdverseEventId(ae.id)` and
-injects grade change timestamps as observation points. Between grade changes,
-the grade holds steady. This adds grade as a DTW-matchable dimension alongside
-escalation/susar/regulatory.
+The `doBuild()` method merges two event sources into a single timeline:
+
+1. **Initialize grade**: query `AeGradeChange.findByAdverseEventId(ae.id)`
+   (sorted by `changedAt`). The first record's `newGrade` is the initial
+   grade. Initialize `currentGrade = initialGrade.ordinal() + 1`.
+
+2. **Initial observation**: create `Observation(0, escalation, susar,
+   regulatory, currentGrade)` — same as today, plus grade.
+
+3. **Sorted merge**: merge `AeGradeChange` records (by `changedAt`) with
+   `PlanItemRecord`s (by `createdAt`) into a single timeline sorted by
+   timestamp. For each record:
+   - If it's a grade change: update `currentGrade` to `newGrade.ordinal() + 1`
+   - If it's a plan item: update `escalation`/`susar`/`regulatory` per the
+     existing binding-name logic
+   - Emit an `Observation` with the current values of all dimensions
+
+4. **Step function**: grade carries forward (holds steady) between grade
+   change records. Status dimensions carry forward between plan item records.
+   Each observation reflects the latest known value of every dimension.
+
+5. **Coalesce**: the existing `coalesce()` method handles same-timestamp
+   observations by keeping the last one. When a grade change and plan item
+   have the same timestamp, the sorted merge processes grade changes first
+   (stable sort by timestamp, grade changes before plan items at same
+   timestamp) so the final coalesced observation reflects both updates.
 
 The `toFeatureMap()` method includes `"grade"` in the output:
 ```java
