@@ -1,8 +1,8 @@
-# Session Handover — 2026-07-21
+# Session Handover — 2026-07-23
 
 ## Last Session
 
-Shipped demo readiness batch (#137, #133, #134, #136, #138). Fixed 3 engine SNAPSHOT breakages (RiskDecision.GateRequired, ActionGateApprovedEvent, Connector.send). Added TrajectoryAlertListener with AE blackboard flags. Seeded 13 staggered enrollment patients and 5 historical trajectory CBR cases. Added SiteEnrollmentTrajectoryJob for periodic snapshots. Fixed CBR eventType schema (categorical → categoricalList) and trajectory timestamp coalescing. Dev mode verified — Quarkus boots, demo data seeds, enrollment trajectories return weekly data. Forage entry GE-20260721-621a64 submitted (CBR CategoricalList cascade gotcha).
+Shipped #135: AE grade regrading. Full feature — AeGradeChange entity with grade transition history, regradeAdverseEvent() with SLA tighten-only policy (D4), five upgrade re-evaluation listeners (escalation, SUSAR, regulatory, trajectory, safety officer), grade as fifth DTW dimension in trajectory builder with sorted merge algorithm, REST endpoints (regrade + grade-history), ledger audit trail with EU AI Act Art.12 ComplianceSupplement. Adversarial design review (19 issues, all verified, $13.46). 30 files, 1871 lines. Squashed and pushed to upstream.
 
 ## Immediate Next Step
 
@@ -11,8 +11,8 @@ Pick from What's Next — guided mode steps or CBR Phase 7.
 ## What's Left
 
 - `#86` — ProtocolAmendmentAdvisor → LlmPlanningStrategy · M · High (blocked: engine#101)
-- `#135` — AE grade regrading · M · Med
 - **PiResponseListenerIntegrationTest** — pre-existing flake, 2 errors in full test suite
+- **CBR CategoricalList** — 3 integration tests fail (AeEscalationPlanRetrieverIntegrationTest, PrecedentEndpointTest, CbrRetrievalAuditIntegrationTest) storing eventType as StringVal instead of StringListVal; GE-20260721-621a64
 
 ## What's Next
 
@@ -20,7 +20,6 @@ Pick from What's Next — guided mode steps or CBR Phase 7.
 |---|-------------|-------|------------|-------|
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | Deferred |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | Deferred |
-| #135 | AE grade regrading | M | Med | Standalone |
 | #86 | Wire ProtocolAmendmentAdvisor | M | High | Blocked: engine#101 |
 | #120 | CBR Phase 7: multi-scope DSMB | L | High | |
 
