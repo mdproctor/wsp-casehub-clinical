@@ -1,8 +1,10 @@
 # Session Handover — 2026-08-01
 
+*Updated: #143, #86, #140 closed — removed from backlog. parent#376, parent#386 closed — removed from cross-repo.*
+
 ## Last Session
 
-Shipped #86: LLM-backed ProtocolAmendmentAdvisor via AgentProvider. `LlmProtocolAmendmentAdvisor @ApplicationScoped` displaces the DefaultBean stub. Uses `AgentProvider.invoke()` with 30s timeout, clinical-domain system prompt, trial context enrichment (phase, AE summary, prior amendments), JSON response parsing with PROCEED fallback. Also fixed multiple SNAPSHOT breakages (#143: GateRequired/QuorumConfig, AgentRoutingContext/CognitiveDemand, PlanItemRecord factory, storeIdempotent/Path overload). Fixed PiResponseListener (#140) to use MessageObserver SPI with REQUIRES_NEW. 2 garden entries submitted (maven dependency scope, Quartz worker TX context).
+Shipped #86: LLM-backed ProtocolAmendmentAdvisor via AgentProvider. Also fixed multiple SNAPSHOT breakages (#143) and PiResponseListener (#140) to use MessageObserver SPI.
 
 ## Immediate Next Step
 
@@ -20,8 +22,3 @@ Pick from What's Next — #99/#104 (guided mode steps) or #120 (CBR Phase 7, slo
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | |
 | #120 | CBR Phase 7: multi-scope DSMB | L | High | Slot 53 open |
-
-## Cross-Repo
-
-- parent#376 — filed: update casehub-clinical.md for CBR Phase 5 PlanAdapter
-- parent#386 — filed: update casehub-clinical.md for CBR Phase 6 trajectory monitoring
