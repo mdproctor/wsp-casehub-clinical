@@ -7,7 +7,7 @@
 
 ## Summary
 
-Two independent additions to clinical's CBR layer:
+Two additions to clinical's CBR layer. #132 (enrichment) should land first — compaction's weighted averaging operates over the enriched feature set including the 3 new fields.
 
 1. **#132** — Enrich `AeCbrFeatureBuilder` with 3 new features: site enrollment count, site target enrollment, and the safety-monitoring agent's trust score at case outcome time.
 2. **#144** — Add `CbrCompactionJob` that merges similar CBR cases into weighted representatives, reducing storage and retrieval cost for the `clinical-ae` domain.
@@ -24,18 +24,27 @@ Two independent additions to clinical's CBR layer:
 
 ### Builder Changes
 
-`AeCbrFeatureBuilder` stays a static utility — no CDI dependencies. The method signature gains 3 parameters:
+`AeCbrFeatureBuilder` stays a static utility — no CDI dependencies. To avoid a 9-parameter method, introduce `AeCbrContext` record in the same package:
 
 ```java
-public static Map<String, Object> buildFeatures(AdverseEvent ae,
-                                                 PatientEnrollment enrollment,
-                                                 ClinicalTrial trial,
-                                                 String safetyReviewOutcome,
-                                                 boolean dsmbEscalated,
-                                                 long priorAeCount,
-                                                 long siteEnrollmentCount,
-                                                 int siteTargetEnrollment,
-                                                 double agentTrustScore)
+public record AeCbrContext(AdverseEvent ae,
+                            PatientEnrollment enrollment,
+                            ClinicalTrial trial,
+                            String safetyReviewOutcome,
+                            boolean dsmbEscalated,
+                            long priorAeCount,
+                            long siteEnrollmentCount,
+                            int siteTargetEnrollment,
+                            double agentTrustScore) {}
+```
+
+The builder methods become:
+
+```java
+public static Map<String, Object> buildFeatures(AeCbrContext ctx)
+public static Map<String, Object> buildQueryFeatures(AeCbrContext ctx)
+public static String buildProblemSummary(AeCbrContext ctx)
+public static String buildSolutionSummary(AeCbrContext ctx)
 ```
 
 `buildQueryFeatures()` gains `siteEnrollmentCount` and `siteTargetEnrollment` but NOT `agentTrustScore` — trust is an outcome-time observation, not a query-time filter.
@@ -50,7 +59,7 @@ FeatureField.numeric("siteTargetEnrollment", 0, 10000),
 FeatureField.numeric("agentTrustScore", 0, 1)
 ```
 
-Total: 14 features (was 11).
+Total: 14 features (was 11). The `mergeCount` field (used by compaction) is also registered here: `FeatureField.numeric("mergeCount", 1, 100000)` — 15 fields total in the schema. Non-compacted cases don't set it (the field is optional in the store).
 
 ### Caller Changes — ClinicalCaseOutcomeObserver
 
@@ -60,7 +69,7 @@ Total: 14 features (was 11).
 
 2. **Agent trust score:** Extract the safety-monitoring agent's actorId from `PlanTrace` (already built in `buildPlanTraces()`). Query `ActorTrustScore` for `(actorId, scoreType=BAYESIAN_BETA, capabilityKey="safety-monitoring", dimensionKey="safety-accuracy")`. If no score exists (bootstrap phase), use `0.5` (uninformative prior).
 
-The `ActorTrustScore` query uses the qhorus datasource (it's a ledger entity). `ClinicalCaseOutcomeObserver` is already `@Transactional` — the query is read-only and safe within the existing transaction boundary. The `EntityResolver` interface gains `findAgentTrustScore(String actorId)` returning `double`.
+`ActorTrustScore` is a ledger entity in the qhorus persistence unit. `ClinicalCaseOutcomeObserver` runs `@Transactional` on the default datasource. The trust score query is read-only and crosses datasource boundaries — this requires XA on both datasources (already configured in clinical's `application.properties`). The `EntityResolver` interface gains `findAgentTrustScore(String actorId)` returning `double`. The `PanacheEntityResolver` implementation uses the named query `ActorTrustScore.findCapabilityDimensionByKeys` with `(actorId, BAYESIAN_BETA, "safety-monitoring", "safety-accuracy")`.
 
 ### Data Flow
 
@@ -85,7 +94,7 @@ The trajectory CBR case inherits the same base features. `ClinicalCaseOutcomeObs
 
 New `@ApplicationScoped` class in `io.casehub.clinical.cbr`.
 
-**Schedule:** Configurable interval, disabled by default. Runs independently of `CbrRetentionPurgeJob` — purge handles TTL/count limits, compaction handles density.
+**Schedule:** Configurable interval, disabled by default. Must run AFTER `CbrRetentionPurgeJob` — purge removes TTL-expired and over-limit cases first, then compaction merges what remains. Both jobs are scheduled independently (Quartz), so ordering is by convention: compaction's default interval (168h) offsets from purge by checking that purge ran recently (log-based, not enforced).
 
 ```properties
 casehub.clinical.cbr.compaction.enabled=false
@@ -140,13 +149,21 @@ for each tenant in store.discoverTenants(AE):
 
 ### Merged Representative
 
-- **Numeric features** (`grade`, `priorAeCount`, `siteEnrollmentCount`, `siteTargetEnrollment`, `agentTrustScore`): weighted average across group members
-- **Categorical outcome features** (`safetyReviewOutcome`, `dsmbEscalated`, `indReportFiled`, `susarOversight`): majority vote (most frequent value)
-- **confidence:** average of individual confidences
-- **mergeCount:** N (stored as additional numeric feature — retrievers see this represents N observations)
+- **Numeric features** (`priorAeCount`, `siteEnrollmentCount`, `siteTargetEnrollment`, `agentTrustScore`): weighted average across group members, weighted by each case's `mergeCount` (1 for non-compacted cases). `grade` is part of the merge key so it's constant within a group — NOT averaged.
+- **Categorical outcome features** (`safetyReviewOutcome`, `dsmbEscalated`, `indReportFiled`, `susarOversight`): majority vote (most frequent value), weighted by `mergeCount`
+- **confidence:** weighted average of individual confidences, weighted by `mergeCount`
+- **mergeCount:** sum of all group members' `mergeCount` values (non-compacted cases have implicit `mergeCount=1`). Stored as `FeatureField.numeric("mergeCount", 1, 100000)` — retrievers see this represents N observations.
 - **problem/solution text:** from the most recently stored case in the group
 - **entityId:** `compact-<SHA256(mergeKey).substring(0,12)>` — deterministic, idempotent across runs
 - **planTraces:** empty list (individual traces lose meaning after merge)
+
+### Failure Handling
+
+Compaction erases originals BEFORE storing the representative. This means a crash mid-compaction loses the group's data rather than creating duplicates. The rationale: lost compaction candidates can be re-derived from future case ingestion, but duplicate cases pollute retrieval results permanently. Each group's erase-then-store is wrapped in try-catch — a failure on one group does not block other groups.
+
+### Concurrency
+
+A new case ingested during the scan window may be missed by compaction. This is acceptable — the case will be picked up on the next compaction run. No locking is needed.
 
 ### Idempotency
 
@@ -203,6 +220,7 @@ Tests drive compaction directly via a `compact()` method.
 - `mergeCount` feature set to group size
 - EntityId is deterministic for same merge key
 - Idempotency: running twice produces same result
+- Re-compaction weighting: compact representative (mergeCount=5) + 2 new singles → new representative has mergeCount=7 and weighted averages respect the 5:1:1 ratio
 
 **Integration test:**
 - Store 5 AE CBR cases with same categoricals, different numerics
