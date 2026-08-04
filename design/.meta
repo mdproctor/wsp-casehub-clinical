@@ -1,0 +1,10 @@
+branch: issue-145-ae-regrade-capability
+state: scaffolded
+project-sha: 16b28f88c7611afabbf303ecc61c54add6d7b010
+date: 2026-08-04
+issue: 145
+issue-repo: casehubio/clinical
+covers: 145
+flyway-next-v: 129
+design-repo: workspace
+design-section-hashes: 
