@@ -1,19 +1,17 @@
-# Session Handover — 2026-08-01
-
-*Updated: #143, #86, #140 closed — removed from backlog. parent#376, parent#386 closed — removed from cross-repo.*
+# Session Handover — 2026-08-04
 
 ## Last Session
 
-Shipped #86: LLM-backed ProtocolAmendmentAdvisor via AgentProvider. Also fixed multiple SNAPSHOT breakages (#143) and PiResponseListener (#140) to use MessageObserver SPI.
+Implemented #132 (AeCbrFeatureBuilder enrichment with site profile + trust scores) and #144 (CbrCompactionJob). 4 implementation tasks complete, code reviewed, 4 garden entries submitted. Pre-close sweep done (forage, update-claude-md, implementation-doc-sync). Branch ready for work-end squash + merge.
 
 ## Immediate Next Step
 
-Pick from What's Next — #99/#104 (guided mode steps) or #120 (CBR Phase 7, slot 53 open).
+Run `work end` on branch `issue-132-cbr-feature-enrichment-compaction` to complete the close: squash 7 commits, rebase onto main, push, close #132 and #144, promote artifacts, stamp.
 
 ## What's Left
 
-- **PiResponseListenerIntegrationTest** — pre-existing flake, passes on retry
-- **Slot 53** — open for #120 (CBR Phase 7), work not started
+- **work-end Steps 8j–12** — squash, rebase, push, artifact promotion, stamp, HANDOFF final
+- **Pre-existing FlywayMigrationTest failure** — `PlanItemFaultedEvent` ClassNotFoundException (SNAPSHOT drift, not this branch)
 
 ## What's Next
 
@@ -21,4 +19,6 @@ Pick from What's Next — #99/#104 (guided mode steps) or #120 (CBR Phase 7, slo
 |---|-------------|-------|------------|-------|
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | |
-| #120 | CBR Phase 7: multi-scope DSMB | L | High | Slot 53 open |
+| #145 | AE regrade capability | L | High | CBR follow-on |
+| #146 | DSMB WorkItem for batch signals | M | Med | Blocked on notification design |
+| #142 | Sync with platform/engine API changes | S | Low | SNAPSHOT breakage |
