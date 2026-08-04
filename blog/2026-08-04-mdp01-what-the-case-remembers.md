@@ -1,6 +1,8 @@
 ---
 title: "What the Case Remembers"
 date: 2026-08-04
+entry_type: note
+subtype: diary
 type: phase-update
 author: mdp
 projects: [casehub-clinical]
