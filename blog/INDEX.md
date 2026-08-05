@@ -41,3 +41,4 @@
 | [2026-07-17-mdp02-three-already-done.md](2026-07-17-mdp02-three-already-done.md) | 2026-07-17 | Three already done and one that wasn't |
 | [2026-07-19-mdp01-when-the-system-remembers-what-worked.md](2026-07-19-mdp01-when-the-system-remembers-what-worked.md) | 2026-07-19 | When the system remembers what worked |
 | [2026-08-05-mdp01-when-the-grade-changes.md](2026-08-05-mdp01-when-the-grade-changes.md) | 2026-08-05 | CBR supersession on AE regrade — feature degradation trade-off, escalation gap, observer fan-out complexity |
+| [2026-08-05-mdp01-the-substring-that-ate-sortable.md](2026-08-05-mdp01-the-substring-that-ate-sortable.md) | 2026-08-05 | SNAPSHOT sync fix — pages-ui table→dataTable rename, inputSchema→inputProjection, and the ide_replace_text_in_file substring matching gotcha |
