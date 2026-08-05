@@ -1,17 +1,19 @@
-# Session Handover — 2026-08-04
+# Session Handover — 2026-08-05
 
 ## Last Session
 
-Closed #132 (AeCbrFeatureBuilder enrichment — site enrollment, target enrollment, agent trust score) and #144 (CbrCompactionJob — merge similar AE CBR cases by exact categorical merge key). Landed as 903997c on main. 4 garden entries submitted. Blog published to personal-notes and casehub-notes.
+Closed #145 (AE regrade capability — CBR supersession + UI + gap fixes). Landed as e8bb097 on main. 2 garden entries submitted (CBR scope path matching, engine goal completion validation). casehub-pages#289 filed for parameterised drill-down datasets. casehubio/clinical#147 filed for escalation re-evaluation on upgrade.
 
 ## Immediate Next Step
 
-Pick from What's Next — #99/#104 (guided mode steps) or #145/#146 (CBR follow-ons in epic #115).
+Pick from What's Next — #99/#104 (guided mode steps) or #146/#147 (CBR/escalation follow-ons).
 
 ## What's Left
 
 - **PiResponseListenerIntegrationTest** — pre-existing flake, passes on retry
-- **FlywayMigrationTest** — pre-existing SNAPSHOT failure (PlanItemFaultedEvent ClassNotFoundException)
+- **AeEscalationLifecycleTest** — pre-existing async engine lifecycle flake
+- **DsmbRollupTest** — pre-existing async engine lifecycle flake
+- **webui build** — pre-existing `table` import not exported from `pages-ui` (4 errors across 4 views)
 
 ## What's Next
 
@@ -19,6 +21,6 @@ Pick from What's Next — #99/#104 (guided mode steps) or #145/#146 (CBR follow-
 |---|-------------|-------|------------|-------|
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | |
-| #145 | AE regrade capability | L | High | CBR follow-on, epic #115 |
 | #146 | DSMB WorkItem for batch signals | M | Med | Blocked on notification design |
-| #142 | Sync with platform/engine API changes | S | Low | SNAPSHOT breakage |
+| #147 | Re-evaluate escalation on upgrade when engineCaseId exists | M | High | Filed this session |
+| #142 | Sync with platform/engine API changes | S | Low | SNAPSHOT breakage — `table` import, test flakes |
