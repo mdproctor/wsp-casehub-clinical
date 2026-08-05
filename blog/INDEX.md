@@ -40,3 +40,4 @@
 | [2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md](2026-07-16-mdp01-the-race-condition-that-killed-the-two-phase-write.md) | 2026-07-16 | The race condition that killed the two-phase write |
 | [2026-07-17-mdp02-three-already-done.md](2026-07-17-mdp02-three-already-done.md) | 2026-07-17 | Three already done and one that wasn't |
 | [2026-07-19-mdp01-when-the-system-remembers-what-worked.md](2026-07-19-mdp01-when-the-system-remembers-what-worked.md) | 2026-07-19 | When the system remembers what worked |
+| [2026-08-05-mdp01-when-the-grade-changes.md](2026-08-05-mdp01-when-the-grade-changes.md) | 2026-08-05 | CBR supersession on AE regrade — feature degradation trade-off, escalation gap, observer fan-out complexity |
