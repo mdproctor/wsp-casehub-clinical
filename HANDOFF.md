@@ -2,7 +2,7 @@
 
 ## Last Session
 
-Closed #145 (AE regrade capability — CBR supersession + UI + gap fixes). Landed as e8bb097 on main. 2 garden entries submitted (CBR scope path matching, engine goal completion validation). casehub-pages#289 filed for parameterised drill-down datasets. casehubio/clinical#147 filed for escalation re-evaluation on upgrade.
+Closed #142 (sync with platform/engine SNAPSHOT API changes). Landed as bd47956 on main. Changes: pages-ui `table` → `dataTable` rename across 4 webui files, `emptyMessage` prop removed, `inputSchema` → `inputProjection` in 2 YAML case definitions, commitment-lifecycle TS null check fix, `env.d.ts` type declarations for `?raw` imports. CLAUDE.md updated for inputProjection rename. 1 garden entry submitted (GE-20260805-450be2: ide_replace_text_in_file substring matching gotcha). Blog entry written.
 
 ## Immediate Next Step
 
@@ -13,7 +13,8 @@ Pick from What's Next — #99/#104 (guided mode steps) or #146/#147 (CBR/escalat
 - **PiResponseListenerIntegrationTest** — pre-existing flake, passes on retry
 - **AeEscalationLifecycleTest** — pre-existing async engine lifecycle flake
 - **DsmbRollupTest** — pre-existing async engine lifecycle flake
-- **webui build** — pre-existing `table` import not exported from `pages-ui` (4 errors across 4 views)
+- **CbrRetrievalAuditIntegrationTest** — pre-existing flake (CBR state contamination), passes on retry
+- **ClinicalCaseOutcomeObserverIntegrationTest** — pre-existing flake (CBR state contamination), passes on retry
 
 ## What's Next
 
@@ -22,5 +23,4 @@ Pick from What's Next — #99/#104 (guided mode steps) or #146/#147 (CBR/escalat
 | #99 | Guided Steps 3-4: AE Event + Governance | M | High | |
 | #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | |
 | #146 | DSMB WorkItem for batch signals | M | Med | Blocked on notification design |
-| #147 | Re-evaluate escalation on upgrade when engineCaseId exists | M | High | Filed this session |
-| #142 | Sync with platform/engine API changes | S | Low | SNAPSHOT breakage — `table` import, test flakes |
+| #147 | Re-evaluate escalation on upgrade when engineCaseId exists | M | High | No matching engine issue — clinical-scoped unless re-open path chosen |
