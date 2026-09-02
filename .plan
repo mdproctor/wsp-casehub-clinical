@@ -13,3 +13,7 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/clinical#148 — Issue #148 ← active
+  - [ ] Batch 1: Datasets
+    - [ ] Task 1: Add parameterised datasets + wire data-display tabs
+  - [ ] Batch 2: Components
+    - [ ] Task 2: Selection-aware components + delete imperative handler
