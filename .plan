@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-122-workbench-row-select
-state: scaffolded
+state: active
 project-sha: eaa129055e68d9eb58de19c902be379a9a528bc4
 date: 2026-09-02
 issue-repo: casehubio/clinical
@@ -13,5 +13,5 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/clinical#122 — Issue #122 ← active
-  - [ ] Batch 1: Selection
-    - [ ] Task 1: Create audit-trail component + enable selection + wire handler
+  - [x] Batch 1: Selection
+    - [x] Task 1: Create audit-trail component + enable selection + wire handler
