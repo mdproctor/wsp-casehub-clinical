@@ -13,3 +13,5 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/clinical#122 — Issue #122 ← active
+  - [ ] Batch 1: Selection
+    - [ ] Task 1: Create audit-trail component + enable selection + wire handler
