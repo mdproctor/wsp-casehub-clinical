@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-148-master-detail-select
-state: scaffolded
+state: active
 project-sha: 9c9a98c98dcaaf9d2677e6652cfe5d0b4346568b
 date: 2026-09-02
 issue-repo: casehubio/clinical
