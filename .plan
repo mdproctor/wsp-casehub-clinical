@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-147-escalation-regrade
-state: scaffolded
+state: active
 project-sha: 744e03bdb74f1c32e4654e8b0fd0e1e2f5cf8ba8
 date: 2026-09-05
 issue-repo: casehubio/clinical
@@ -13,9 +13,9 @@ flyway-next-v: unknown
 
 ## Queue
 - [ ] casehubio/clinical#147 — Issue #147 ← active
-  - [ ] Batch 1: Case-ID guarded completion
-    - [ ] Task 1: CompletionResult enum + AeStatusUpdater
-    - [ ] Task 2: AeEscalationListener differentiated handling
-  - [ ] Batch 2: Regrade escalation path
-    - [ ] Task 3: Grade threshold gate
-    - [ ] Task 4: Guard removal + integration test
+  - [x] Batch 1: Case-ID guarded completion
+    - [x] Task 1: CompletionResult enum + AeStatusUpdater
+    - [x] Task 2: AeEscalationListener differentiated handling
+  - [x] Batch 2: Regrade escalation path
+    - [x] Task 3: Grade threshold gate
+    - [x] Task 4: Guard removal + integration test
