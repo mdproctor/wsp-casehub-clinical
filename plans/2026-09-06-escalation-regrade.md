@@ -108,12 +108,6 @@ class AeStatusUpdaterTest {
     }
 
     @Test
-    void null_expectedCaseId_skips_discrimination() {
-        var result = statusUpdater.markCompleted(aeId, null);
-        assertThat(result).isEqualTo(AeStatusUpdater.CompletionResult.COMPLETED);
-    }
-
-    @Test
     void already_completed_returns_ALREADY_COMPLETED() {
         setEscalationStatus(AeEscalationStatus.COMPLETED);
         var result = statusUpdater.markCompleted(aeId, caseId);
@@ -143,7 +137,7 @@ class AeStatusUpdaterTest {
 - [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mvn test -pl runtime -Dtest=AeStatusUpdaterTest --batch-mode`
-Expected: Compilation failure — `CompletionResult` does not exist, `markCompleted` has wrong signature
+Expected: Compilation failure — `CompletionResult` does not exist, `markCompleted` has wrong signature. 5 tests expected.
 
 - [ ] **Step 3: Implement CompletionResult enum and update markCompleted**
 
@@ -182,7 +176,7 @@ public class AeStatusUpdater {
             LOG.debugf("AeStatusUpdater: aeId=%s already COMPLETED — skipping", aeId);
             return CompletionResult.ALREADY_COMPLETED;
         }
-        if (expectedCaseId != null && !expectedCaseId.equals(ae.engineCaseId)) {
+        if (!expectedCaseId.equals(ae.engineCaseId)) {
             LOG.infof("Superseded escalation case %s completed for aeId=%s — current case is %s",
                 expectedCaseId, aeId, ae.engineCaseId);
             return CompletionResult.SUPERSEDED;
@@ -197,7 +191,7 @@ public class AeStatusUpdater {
 - [ ] **Step 4: Run tests to verify they pass**
 
 Run: `mvn test -pl runtime -Dtest=AeStatusUpdaterTest --batch-mode`
-Expected: All 6 tests PASS
+Expected: All 5 tests PASS
 
 - [ ] **Step 5: Commit**
 
@@ -213,6 +207,7 @@ git commit -m "feat(#147): CompletionResult enum + case-ID guarded markCompleted
 
 **Files:**
 - Modify: `runtime/src/main/java/io/casehub/clinical/service/AeEscalationListener.java`
+- Modify: `runtime/src/main/java/io/casehub/clinical/service/AeEscalationLedgerWriter.java` (add `writeSupersededCompletionEntry`)
 - Modify: `runtime/src/test/java/io/casehub/clinical/service/AeEscalationListenerTest.java`
 - Modify: `runtime/src/test/java/io/casehub/clinical/service/AeEscalationListenerMemoryTest.java`
 
@@ -239,7 +234,7 @@ void superseded_case_writes_ledger_but_skips_memory_and_event() {
 
     listener.onCaseLifecycle(goalReachedEvent(caseId, snapshot));
 
-    verify(ledgerWriter).writeCompletionEntry(eq(aeId), eq(enrollmentId),
+    verify(ledgerWriter).writeSupersededCompletionEntry(eq(aeId), eq(enrollmentId),
         eq(CtcaeGrade.GRADE_3), eq("REVIEWED"), eq(false), any());
     verifyNoInteractions(memoryService);
     verifyNoInteractions(completedEvents);
@@ -249,9 +244,23 @@ void superseded_case_writes_ledger_but_skips_memory_and_event() {
 - [ ] **Step 2: Run test to verify it fails**
 
 Run: `mvn test -pl runtime -Dtest=AeEscalationListenerTest#superseded_case_writes_ledger_but_skips_memory_and_event --batch-mode`
-Expected: Compilation failure — `markCompleted` signature mismatch
+Expected: Compilation failure — `markCompleted` signature mismatch, `writeSupersededCompletionEntry` does not exist
 
-- [ ] **Step 3: Update AeEscalationListener.onCaseLifecycle()**
+- [ ] **Step 3: Add writeSupersededCompletionEntry to AeEscalationLedgerWriter**
+
+Read `AeEscalationLedgerWriter.java` and add a `writeSupersededCompletionEntry` method that mirrors `writeCompletionEntry` but uses `actorRole = "AeEscalationCase-superseded"` instead of the default. The method signature is identical to `writeCompletionEntry`:
+
+```java
+public void writeSupersededCompletionEntry(UUID aeId, UUID enrollmentId,
+        CtcaeGrade grade, String safetyReviewOutcome,
+        boolean dsmbEscalated, Instant completedAt) {
+    // Same as writeCompletionEntry but with actorRole = "AeEscalationCase-superseded"
+}
+```
+
+The implementation follows the existing `writeCompletionEntry` pattern — read it first, then duplicate with the different `actorRole`. No schema change needed — `actorRole` is already a String field on `JpaLedgerEntry`.
+
+- [ ] **Step 5: Update AeEscalationListener.onCaseLifecycle()**
 
 Replace the body of `onCaseLifecycle()` in `AeEscalationListener.java`. The key changes:
 - `markCompleted(aeId)` → `markCompleted(aeId, event.caseId())`
@@ -282,7 +291,6 @@ public void onCaseLifecycle(@ObservesAsync CaseLifecycleEvent event) {
     AeStatusUpdater.CompletionResult result = statusUpdater.markCompleted(aeId, event.caseId());
     if (result == AeStatusUpdater.CompletionResult.NOT_FOUND
             || result == AeStatusUpdater.CompletionResult.ALREADY_COMPLETED) return;
-    try { aeTrajectoryAlertService.evaluate(aeId, event.tenancyId()); } catch (Exception te) { LOG.warnf(te, "Trajectory alert evaluation failed for aeId=%s", aeId); }
 
     UUID enrollmentId = resolveUuid(snapshot.path("enrollmentId").asText(null));
     if (enrollmentId == null) {
@@ -299,11 +307,14 @@ public void onCaseLifecycle(@ObservesAsync CaseLifecycleEvent event) {
 
     boolean ledgerWritten = false;
     try {
+        if (result == AeStatusUpdater.CompletionResult.SUPERSEDED) {
+            ledgerWriter.writeSupersededCompletionEntry(aeId, enrollmentId, grade, safetyReviewOutcome, dsmbEscalated, completedAt);
+            return;
+        }
         ledgerWriter.writeCompletionEntry(aeId, enrollmentId, grade, safetyReviewOutcome, dsmbEscalated, completedAt);
         ledgerWritten = true;
 
-        if (result == AeStatusUpdater.CompletionResult.SUPERSEDED) return;
-
+        try { aeTrajectoryAlertService.evaluate(aeId, event.tenancyId()); } catch (Exception te) { LOG.warnf(te, "Trajectory alert evaluation failed for aeId=%s", aeId); }
         String tenantId = snapshot.path("tenantId").asText(null);
         if (tenantId != null) {
             memoryService.storeAeOutcome(aeId, enrollmentId, grade, safetyReviewOutcome, dsmbEscalated, tenantId);
@@ -325,7 +336,7 @@ public void onCaseLifecycle(@ObservesAsync CaseLifecycleEvent event) {
 }
 ```
 
-- [ ] **Step 4: Update existing tests in AeEscalationListenerTest**
+- [ ] **Step 6: Update existing tests in AeEscalationListenerTest**
 
 All `when(statusUpdater.markCompleted(aeId)).thenReturn(true/false)` calls must change to `when(statusUpdater.markCompleted(eq(aeId), any())).thenReturn(CompletionResult.COMPLETED/ALREADY_COMPLETED)`.
 
@@ -360,7 +371,7 @@ to:
 when(statusUpdater.markCompleted(eq(aeId), any())).thenReturn(CompletionResult.ALREADY_COMPLETED);
 ```
 
-- [ ] **Step 5: Update existing tests in AeEscalationListenerMemoryTest**
+- [ ] **Step 7: Update existing tests in AeEscalationListenerMemoryTest**
 
 Same pattern — 2 mock sites:
 - `storeAeOutcome_called_with_correct_args_on_completion` (line 57)
@@ -377,15 +388,16 @@ when(statusUpdater.markCompleted(eq(aeId), any())).thenReturn(AeStatusUpdater.Co
 
 Add import: `import static org.mockito.ArgumentMatchers.eq;`
 
-- [ ] **Step 6: Run all affected tests**
+- [ ] **Step 8: Run all affected tests**
 
 Run: `mvn test -pl runtime -Dtest="AeEscalationListenerTest,AeEscalationListenerMemoryTest,AeStatusUpdaterTest" --batch-mode`
 Expected: All tests PASS (including the new superseded test)
 
-- [ ] **Step 7: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add runtime/src/main/java/io/casehub/clinical/service/AeEscalationListener.java
+git add runtime/src/main/java/io/casehub/clinical/service/AeEscalationLedgerWriter.java
 git add runtime/src/test/java/io/casehub/clinical/service/AeEscalationListenerTest.java
 git add runtime/src/test/java/io/casehub/clinical/service/AeEscalationListenerMemoryTest.java
 git commit -m "feat(#147): differentiated completion handling — superseded cases write ledger only Refs #147"
@@ -585,9 +597,61 @@ void grade3_to_grade4_regrade_starts_fresh_case_with_dsmb() throws Exception {
 
     verify(trialSafetySignalService).signalGrade4Active(siteId);
 }
+
+@Test
+void grade3_to_grade4_regrade_with_active_case_supersedes_old_case() throws Exception {
+    // Phase 1: Report Grade 3 — starts escalation case (senior monitor only)
+    aeEscalationCaseService.onAdverseEventReported(aeEvent(CtcaeGrade.GRADE_3));
+
+    await().atMost(5, SECONDS).pollInterval(100, MILLISECONDS)
+            .untilAsserted(() -> {
+                List<WorkItem> items = aeWorkItems();
+                assertThat(items.stream().anyMatch(wi -> wi.title().contains("Senior safety monitor")))
+                        .as("safety-review WorkItem for Grade 3").isTrue();
+            });
+
+    UUID originalCaseId = findAe(aeId).engineCaseId;
+    assertThat(originalCaseId).isNotNull();
+    assertThat(findAe(aeId).escalationStatus)
+            .isIn(AeEscalationStatus.REQUESTED, AeEscalationStatus.COMPLETED);
+
+    // Phase 2: Regrade to Grade 4 WITHOUT completing Grade 3 — active case superseded
+    aeEscalationCaseService.startEscalationForRegrade(
+            aeId, enrollmentId, siteId, CtcaeGrade.GRADE_4, principal.tenancyId());
+
+    // Fresh case should be started — new engineCaseId
+    AdverseEvent regraded = findAe(aeId);
+    assertThat(regraded.engineCaseId).isNotNull();
+    assertThat(regraded.engineCaseId).isNotEqualTo(originalCaseId);
+
+    // Grade 4 case creates DSMB WorkItem
+    await().atMost(5, SECONDS).pollInterval(100, MILLISECONDS)
+            .untilAsserted(() -> {
+                List<WorkItem> items = aeWorkItems();
+                assertThat(items.stream().anyMatch(wi -> wi.title().contains("DSMB")))
+                        .as("DSMB WorkItem for Grade 4 regrade").isTrue();
+            });
+
+    // Phase 3: Complete old Grade 3 safety review — should be SUPERSEDED
+    WorkItem oldSafetyWorkItem = aeWorkItems().stream()
+            .filter(wi -> wi.title().contains("Senior safety monitor"))
+            .findFirst().orElseThrow();
+    String resolution = "{\"outcome\":\"REVIEWED\",\"reviewedAt\":\"2026-09-06T13:00:00Z\"}";
+    workItemService.completeFromSystem(oldSafetyWorkItem.id(), "senior-monitor", resolution);
+
+    WorkItem completedOld = aeWorkItems().stream()
+            .filter(wi -> wi.id().equals(oldSafetyWorkItem.id()))
+            .findFirst().orElseThrow();
+    lifecycleAdapter.onWorkItemLifecycle(
+            WorkItemLifecycleEvent.of("COMPLETED", completedOld, "senior-monitor", completedOld.resolution()));
+
+    // Old case completing should NOT set escalationStatus to COMPLETED
+    // (engineCaseId points to new case — case-ID mismatch → SUPERSEDED)
+    assertThat(findAe(aeId).escalationStatus).isNotEqualTo(AeEscalationStatus.COMPLETED);
+}
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [ ] **Step 2: Run tests to verify they fail**
 
 Run: `mvn test -pl runtime -Dtest=AeEscalationLifecycleTest#grade3_to_grade4_regrade_starts_fresh_case_with_dsmb --batch-mode`
 Expected: FAIL — `engineCaseId` is unchanged (guard returns null, no new case started)
