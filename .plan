@@ -13,3 +13,9 @@ flyway-next-v: unknown
 
 ## Queue
 - [ ] casehubio/clinical#147 — Issue #147 ← active
+  - [ ] Batch 1: Case-ID guarded completion
+    - [ ] Task 1: CompletionResult enum + AeStatusUpdater
+    - [ ] Task 2: AeEscalationListener differentiated handling
+  - [ ] Batch 2: Regrade escalation path
+    - [ ] Task 3: Grade threshold gate
+    - [ ] Task 4: Guard removal + integration test
