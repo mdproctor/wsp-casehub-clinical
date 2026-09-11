@@ -58,3 +58,15 @@
 **Sources:** SusarAgentAttestationWriter, ClinicalComplianceSupplement, LedgerEntry.attach()
 **Exploration:** quick
 **Status:** captured
+
+## D6: Agent architecture pattern
+
+**Choice:** Per-agent SPI implementations following the existing ProtocolAmendmentAdvisor pattern
+**Alternatives:**
+- Generic ClinicalAgent<I,O> base class — DRY but premature abstraction over 4 different domain problems
+**Rationale:** Proven pattern. Each agent gets its own SPI interface + @DefaultBean stub + @ApplicationScoped LLM implementation. ClinicalAgentSupport utility handles common concerns (prompt building, JSON parsing, config lookup, fallback). No base class hierarchy. Each agent's domain contract stays explicit and testable independently.
+**Trade-offs:** Some boilerplate across 4 implementations (mitigated by shared utility)
+**Depends on:** D4 (shared utility handles mechanical commonality)
+**Sources:** LlmProtocolAmendmentAdvisor, DefaultProtocolAmendmentAdvisor, SusarCriteriaEvaluator @DefaultBean displacement pattern
+**Exploration:** quick
+**Status:** captured
