@@ -169,7 +169,9 @@ record CriterionEvaluation(String criterionId, boolean met,
 **Fallback:** All criteria returned as MARGINAL → triggers IRB consultation gate.
 
 **Integration:** `EligibilityScreeningService.screen()` calls the SPI before applying its
-existing precedence logic. No change to the downstream engine case or IRB gate.
+existing precedence logic. `LlmEligibilityCriteriaEvaluator` maps `EligibilityResponse` to
+`List<CriterionResult>` (existing `io.casehub.clinical.api.model` type) internally.
+No change to the downstream engine case or IRB gate.
 
 ## Section 4: Safety Monitoring Agent (SUSAR Evaluation)
 
@@ -336,6 +338,14 @@ Verify:
 - End-to-end: trigger → agent called → result flows through engine/ledger pipeline
 - `ComplianceSupplement` includes `InvocationComplete` metrics
 
+### Fallback escalation trade-off (D7)
+
+Conservative fallbacks may create false escalations when the LLM is unavailable — eligibility
+candidates routed to IRB unnecessarily, AEs escalated to safety officers that don't warrant
+review. This is the correct trade-off for a clinical system: false escalations cost human
+review time; false suppressions risk patient safety. Tests verify both the happy path (LLM
+available, correct response) and the fallback path (LLM unavailable, conservative escalation).
+
 ### No real LLM calls in tests
 
 `@InjectMock AgentProvider` controls all responses. Mock returns pre-crafted
@@ -386,7 +396,9 @@ record of which model ran, how much compute it used, what it cost, and how long 
 | `DefaultTrialSupervisionAdvisor.java` | `io.casehub.clinical.service` | @DefaultBean stub |
 | `LlmTrialSupervisionAdvisor.java` | `io.casehub.clinical.service` | LLM implementation |
 | `SupervisionAssessment.java` | `io.casehub.clinical.agent` | Response records |
-| `TrialSupervisionCaseHub.java` | `io.casehub.clinical.casehub` | Engine CaseHub + worker |
+| `TrialSafetyContext.java` | `io.casehub.clinical.api.spi` | Input record for SafetySignalAnalyzer |
+| `TrialSupervisionContext.java` | `io.casehub.clinical.api.spi` | Input record for TrialSupervisionAdvisor |
+| `TrialSupervisionCaseHub.java` | `io.casehub.clinical.service` | Engine CaseHub + worker |
 
 ### Modified files
 
@@ -426,7 +438,7 @@ ComplianceSupplement metrics stored as JSON in existing ledger entries.
 - [AgentEvent.InvocationComplete](casehub-platform-agent-api) — per-invocation metrics
 - [ClaudeAgentProvider](casehub-platform-agent-claude) — Claude CLI wrapper with Vertex auth
 - [SusarCriteriaEvaluator](runtime/src/main/java/.../service/SusarCriteriaEvaluator.java) — existing rule-based evaluator to displace
-- [TrialSafetyAggregationJob](runtime/src/main/java/.../service/TrialSafetyAggregationJob.java) — DSMB integration point
+- [TrialSafetyAggregationJob](runtime/src/main/java/.../cbr/TrialSafetyAggregationJob.java) — DSMB integration point
 - [trial-coordination.yaml](runtime/src/main/resources/.../trial-coordination.yaml) — trial supervision binding target
 - ICH E2A — SUSAR assessment criteria
 - 21 CFR 312.32 — FDA expedited safety reporting
