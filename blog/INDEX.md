@@ -42,3 +42,4 @@
 | [2026-07-19-mdp01-when-the-system-remembers-what-worked.md](2026-07-19-mdp01-when-the-system-remembers-what-worked.md) | 2026-07-19 | When the system remembers what worked |
 | [2026-08-05-mdp01-when-the-grade-changes.md](2026-08-05-mdp01-when-the-grade-changes.md) | 2026-08-05 | CBR supersession on AE regrade — feature degradation trade-off, escalation gap, observer fan-out complexity |
 | [2026-08-14-mdp01-commitment-lifecycle-qhorus.md](2026-08-14-mdp01-commitment-lifecycle-qhorus.md) | 2026-08-14 | Commitment lifecycle endpoint wired to qhorus CommitmentReader — state translation, tenancy isolation, channel message history |
+| [2026-09-11-mdp01-when-the-agents-stop-being-stubs.md](2026-09-11-mdp01-when-the-agents-stop-being-stubs.md) | 2026-09-11 | Activating real LLM agents across five clinical decision points — per-agent SPI displacement, domain-appropriate fallbacks, and compliance audit without schema changes |
