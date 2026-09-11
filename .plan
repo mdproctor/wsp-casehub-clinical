@@ -18,8 +18,8 @@ flyway-next-v: none
     - [x] Task 2: Bootstrap deps + refactor LlmProtocolAmendmentAdvisor
   - [x] Batch 2: Eligibility
     - [x] Task 3: EligibilityCriteriaEvaluator SPI + LLM impl
-  - [ ] Batch 3: Safety
-    - [ ] Task 4: LlmSusarCriteriaEvaluator
+  - [x] Batch 3: Safety
+    - [x] Task 4: LlmSusarCriteriaEvaluator
   - [ ] Batch 4: DSMB
     - [ ] Task 5: SafetySignalAnalyzer SPI + LLM impl
   - [ ] Batch 5: Supervision
