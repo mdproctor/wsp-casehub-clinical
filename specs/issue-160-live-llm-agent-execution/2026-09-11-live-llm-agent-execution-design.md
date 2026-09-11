@@ -46,7 +46,7 @@ SPI interface (io.casehub.clinical.api.spi)
 | Eligibility screening | `EligibilityCriteriaEvaluator` (new) | All MET | All MARGINAL → IRB gate | `EligibilityScreeningService` |
 | Safety monitoring | `SusarEvaluatorFunction` (exists) | Rule-based | susarRequired=true → escalate | `ClinicalSusarOversightCaseHub` worker (exists) |
 | DSMB analysis | `SafetySignalAnalyzer` (new) | Pass-through | FLAG_FOR_REVIEW → DSMB WorkItem | `TrialSafetyAggregationJob` |
-| Trial supervision | `TrialSupervisionAdvisor` (new) | REVIEW_REQUIRED | REVIEW_REQUIRED → WorkItem | `TrialSupervisionCaseHub` (new) |
+| Trial supervision | `TrialSupervisionAdvisor` (new) | REVIEW_REQUIRED | REVIEW_REQUIRED → WorkItem | `ClinicalTrialCaseHub.augment()` + `trial-coordination.yaml` |
 
 ## Section 1: Bootstrap — Dependencies and Configuration
 
@@ -78,10 +78,15 @@ Production `application.properties`:
 ```properties
 casehub.platform.agent.default-backend=claude
 casehub.clinical.agent.eligibility.model=sonnet
+casehub.clinical.agent.eligibility.timeout=PT30S
 casehub.clinical.agent.safety.model=sonnet
+casehub.clinical.agent.safety.timeout=PT30S
 casehub.clinical.agent.dsmb.model=sonnet
+casehub.clinical.agent.dsmb.timeout=PT60S
 casehub.clinical.agent.supervision.model=sonnet
+casehub.clinical.agent.supervision.timeout=PT60S
 casehub.clinical.agent.amendment.model=sonnet
+casehub.clinical.agent.amendment.timeout=PT30S
 ```
 
 Each capability reads its model from `casehub.clinical.agent.<key>.model` (D2). The backend
@@ -113,19 +118,30 @@ public <T> ClinicalAgentResult<T> invoke(ClinicalAgentRequest<T> request)
 **`ClinicalAgentRequest<T>`:** system prompt, user prompt, response class (`T`), fallback value,
 config key for model lookup, correlation ID.
 
-**`ClinicalAgentResult<T>`:** parsed response (`T`), raw text, `InvocationMetrics` (model,
-inputTokens, outputTokens, thinkingTokens, totalCostUsd, durationMs, sessionId — from
-`AgentEvent.InvocationComplete`), whether fallback was used, failure reason.
+**`ClinicalAgentResult<T>`:** parsed response (`T`), raw text, `InvocationMetrics`, whether
+fallback was used, failure reason.
+
+**`InvocationMetrics`:** Sourced from two places:
+- From `AgentSessionConfig` (input): `model` (the model string passed to the config)
+- From `AgentEvent.InvocationComplete` (output): `inputTokens`, `outputTokens`,
+  `thinkingTokens`, `cacheReadTokens`, `cacheWriteTokens`, `totalCostUsd`, `durationMs`,
+  `apiDurationMs`, `sessionId`, `numTurns`, `isError`
+
+Note: `InvocationComplete` does not carry a `model` field — the model is sourced from
+the `AgentSessionConfig` the caller built.
 
 ### Invoke flow
 
 1. Read model from config (`casehub.clinical.agent.<key>.model`, default `sonnet`)
-2. Build `AgentSessionConfig` with model field set
-3. Call `agentProvider.invoke(config)`
-4. Collect `TextDelta` events into response text; capture `InvocationComplete` metrics
-5. Extract JSON block (handle markdown ` ```json ` fences)
-6. Deserialize with Jackson `ObjectMapper.readValue(json, responseClass)`
-7. On any failure: log at WARN/ERROR, return caller's specified fallback value
+2. Read timeout from config (`casehub.clinical.agent.<key>.timeout`, default `PT30S`)
+3. Build `AgentSessionConfig` with model, timeout, and correlation ID set
+4. Call `agentProvider.invoke(config)`
+5. Collect `TextDelta` events into response text; capture `InvocationComplete` event
+6. Check `InvocationComplete.isError()` — if true, treat as failure → fallback
+7. Extract JSON block (handle markdown ` ```json ` fences)
+8. Deserialize with Jackson `ObjectMapper.readValue(json, responseClass)`
+9. On any failure (timeout, parse error, isError, exception): log at WARN/ERROR, return
+   caller's specified fallback value
 
 ### Refactor existing LlmProtocolAmendmentAdvisor
 
@@ -168,9 +184,27 @@ record CriterionEvaluation(String criterionId, boolean met,
 
 **Fallback:** All criteria returned as MARGINAL → triggers IRB consultation gate.
 
-**Integration:** `EligibilityScreeningService.screen()` calls the SPI before applying its
-existing precedence logic. `LlmEligibilityCriteriaEvaluator` maps `EligibilityResponse` to
-`List<CriterionResult>` (existing `io.casehub.clinical.api.model` type) internally.
+**Integration data flow:**
+
+The current REST API (`PatientResource.screen()`) receives `ScreenPatientRequest` containing
+pre-evaluated `List<CriterionResult>` and calls `EligibilityScreeningService.screen(enrollment, criteria)`.
+
+New path: `EligibilityScreeningService` gains `evaluateAndScreen(PatientEnrollment, List<String> protocolCriteria)`:
+1. Calls `EligibilityCriteriaEvaluator.evaluate(enrollment, protocolCriteria)` → `List<CriterionResult>`
+2. Calls existing `screen(enrollment, criteria)` with the evaluated results
+
+`PatientResource` gains a new endpoint `POST /api/patients/{id}/evaluate-and-screen` accepting
+`EvaluateScreenRequest(List<String> protocolCriteria)` — protocol criteria text. The existing
+`screen` endpoint continues to accept pre-evaluated criteria for backward compatibility.
+
+`LlmEligibilityCriteriaEvaluator` maps `EligibilityResponse` to `List<CriterionResult>`
+(existing `io.casehub.clinical.api.model` type) internally. The LLM's `reasoning` per
+criterion is captured in the `ComplianceSupplement.detail` field via the `InvocationMetrics`
+JSON blob — not lost, but not in the domain record.
+
+`DemoDataSeeder` continues using the direct `screen()` path with hardcoded `CriterionResult`
+values — the seeder does not call the LLM evaluator, keeping startup fast and deterministic.
+
 No change to the downstream engine case or IRB gate.
 
 ## Section 4: Safety Monitoring Agent (SUSAR Evaluation)
@@ -207,13 +241,27 @@ record SusarAssessmentResponse(boolean susarRequired,
 
 **Fallback:** `susarRequired = true` → escalates to human safety officer review.
 
-**Integration:** Same `SusarEvaluatorFunction` interface — `ClinicalSusarOversightCaseHub`
-worker lambda calls it unchanged. LLM result maps to the same
-`WorkerResult<Map<String,Object>>` the engine expects.
+**Integration:** `LlmSusarCriteriaEvaluator` implements `SusarEvaluatorFunction`
+(`Function<Map<String,Object>, WorkerResult<Map<String,Object>>>`). The `apply()` method:
 
-**Value over rule-based:** Catches borderline cases the threshold rules miss — Grade 3
-unexpected AEs (15-day reporting path), causality nuance for novel drug classes,
-multi-factor severity reasoning.
+1. Extracts `aeId` from the input map (same as existing `SusarCriteriaEvaluator`)
+2. Loads `AdverseEvent` entity from DB (`@Transactional`), plus related patient context
+3. Builds user prompt from the loaded clinical data
+4. Calls `ClinicalAgentSupport.invoke()` → `SusarAssessmentResponse`
+5. Maps response to `WorkerResult`:
+   - Output map: `{"susarRequired": response.susarRequired(), "susarAssessmentComplete": true,
+     "causalityAssessment": response.causalityAssessment(), "reasoning": response.reasoning()}`
+   - When `susarRequired == true`: creates `PlannedAction.of(ClinicalActionType.SUSAR_CRITERIA_DECISION.reason(),
+     ClinicalActionType.SUSAR_CRITERIA_DECISION.actionType(), actionCtx)` — same as existing evaluator.
+     This triggers the oversight gate requiring qualified-investigator sign-off.
+   - When `susarRequired == false`: returns `WorkerResult.of(outputMap)` with no `PlannedAction`
+
+`ClinicalSusarOversightCaseHub` worker lambda calls the function unchanged.
+
+**Value over rule-based:** The LLM adds causality reasoning (temporal relationship, dose-response,
+dechallenge/rechallenge) and expectedness assessment beyond threshold rules. Maintains the same
+Grade 4/5 scope boundary as the rule-based evaluator — Grade 3 unexpected AEs remain deferred
+(clinical#76). The LLM does not expand regulatory scope.
 
 ## Section 5: DSMB Safety Signal Analysis Agent
 
@@ -307,10 +355,12 @@ enum FindingSeverity { LOW, MODERATE, HIGH, CRITICAL }
 
 **Fallback:** REVIEW_REQUIRED → creates WorkItem for PI/operations review.
 
-**Integration:** New capability binding in `trial-coordination.yaml` alongside the existing
-DSMB humanTask. Fires on `contextChange` trigger when trial-wide metrics update. New
-`TrialSupervisionCaseHub` class registers the worker via `Worker.builder().function()`,
-following the `ClinicalSusarOversightCaseHub` pattern.
+**Integration:** New capability binding added to `trial-coordination.yaml` alongside the
+existing DSMB humanTask. Fires on `contextChange` trigger when trial-wide safety metrics
+update (after `TrialSafetyAggregationJob` runs or enrollment changes). The worker is
+registered via `ClinicalTrialCaseHub.augment()` — not a separate CaseHub class. This
+avoids creating a duplicate `CaseInstance` per trial. The worker registration follows
+`Worker.builder().function()` with capability `trial-supervision`.
 
 ## Section 7: Testing Strategy
 
@@ -359,14 +409,16 @@ same test cases, different internal implementation.
 
 ## Audit Trail (D5)
 
-`AgentEvent.InvocationComplete` delivers per-invocation metrics: model, inputTokens,
-outputTokens, thinkingTokens, totalCostUsd, durationMs, sessionId.
+`ClinicalAgentSupport` captures `InvocationComplete` metrics in `ClinicalAgentResult.metrics()`.
 
-`ClinicalAgentSupport` captures these in `ClinicalAgentResult.metrics()`.
+Ledger writers serialize `InvocationMetrics` as JSON into the existing `ComplianceSupplement.detail`
+field (a platform-owned String). `ClinicalComplianceSupplement` factory methods gain an overload
+accepting `InvocationMetrics` — the `detail` field carries serialized JSON like:
+`{"model":"sonnet","inputTokens":1234,"outputTokens":567,"totalCostUsd":0.003,"durationMs":2100}`.
 
-Ledger writers include the metrics in `ClinicalComplianceSupplement` — the supplement gains
-fields for model identifier, token counts, cost, and latency. The supplement is a JSON blob
-inside the existing ledger entry — no new `LedgerEntry` subclass or migration needed.
+No new fields on `ComplianceSupplement` (platform-owned schema). No new `LedgerEntry` subclass
+or migration. The `algorithmRef` field continues to identify the agent implementation class
+(e.g., `"LlmSusarCriteriaEvaluator"`).
 
 This satisfies EU AI Act Art.12 record-keeping: every AI agent decision has a traceable
 record of which model ran, how much compute it used, what it cost, and how long it took.
@@ -398,7 +450,7 @@ record of which model ran, how much compute it used, what it cost, and how long 
 | `SupervisionAssessment.java` | `io.casehub.clinical.agent` | Response records |
 | `TrialSafetyContext.java` | `io.casehub.clinical.api.spi` | Input record for SafetySignalAnalyzer |
 | `TrialSupervisionContext.java` | `io.casehub.clinical.api.spi` | Input record for TrialSupervisionAdvisor |
-| `TrialSupervisionCaseHub.java` | `io.casehub.clinical.service` | Engine CaseHub + worker |
+| `EvaluateScreenRequest.java` | `io.casehub.clinical.api.model` | REST request for evaluate-and-screen endpoint |
 
 ### Modified files
 
@@ -407,10 +459,12 @@ record of which model ran, how much compute it used, what it cost, and how long 
 | `runtime/pom.xml` | Add agent-router + agent-claude dependencies |
 | `application.properties` | Agent config properties, Jandex indexing |
 | `LlmProtocolAmendmentAdvisor.java` | Refactor to use ClinicalAgentSupport |
-| `EligibilityScreeningService.java` | Call EligibilityCriteriaEvaluator SPI |
+| `EligibilityScreeningService.java` | Add evaluateAndScreen() method calling SPI |
+| `PatientResource.java` | Add POST /api/patients/{id}/evaluate-and-screen endpoint |
 | `TrialSafetyAggregationJob.java` | Call SafetySignalAnalyzer after rule-based detection |
 | `trial-coordination.yaml` | Add trial-supervision capability binding |
-| `ClinicalComplianceSupplement.java` | Add InvocationMetrics fields |
+| `ClinicalTrialCaseHub.java` | Register trial-supervision worker in augment() |
+| `ClinicalComplianceSupplement.java` | Add overload accepting InvocationMetrics for detail field |
 
 ### Test files (new)
 
@@ -444,3 +498,9 @@ ComplianceSupplement metrics stored as JSON in existing ledger entries.
 - 21 CFR 312.32 — FDA expedited safety reporting
 - EU AI Act Art.12 — AI system record-keeping requirements
 - Decision review R1-02, R1-03, R1-09 — Jackson parsing, InvocationComplete audit, per-agent fallback
+- Spec review R1-02 — InvocationComplete has no model field; source from AgentSessionConfig
+- Spec review R1-03 — ComplianceSupplement is platform-owned; use existing detail field
+- Spec review R1-04 — Eligibility integration gap; new evaluateAndScreen() path
+- Spec review R1-05 — SUSAR WorkerResult mapping + PlannedAction must be explicit
+- Spec review R1-06 — Grade 3 scope deferred (clinical#76); LLM maintains Grade 4/5 boundary
+- Spec review R1-08 — Trial supervision uses ClinicalTrialCaseHub.augment(), not separate CaseHub
