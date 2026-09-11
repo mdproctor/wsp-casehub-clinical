@@ -22,5 +22,5 @@ flyway-next-v: none
     - [x] Task 4: LlmSusarCriteriaEvaluator
   - [x] Batch 4: DSMB
     - [x] Task 5: SafetySignalAnalyzer SPI + LLM impl
-  - [ ] Batch 5: Supervision
-    - [ ] Task 6: TrialSupervisionAdvisor SPI + LLM impl + YAML binding
+  - [x] Batch 5: Supervision
+    - [x] Task 6: TrialSupervisionAdvisor SPI + LLM impl + YAML binding
