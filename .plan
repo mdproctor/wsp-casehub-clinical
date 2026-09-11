@@ -16,8 +16,8 @@ flyway-next-v: none
   - [x] Batch 1: Foundation
     - [x] Task 1: ClinicalAgentSupport shared utility
     - [x] Task 2: Bootstrap deps + refactor LlmProtocolAmendmentAdvisor
-  - [ ] Batch 2: Eligibility
-    - [ ] Task 3: EligibilityCriteriaEvaluator SPI + LLM impl
+  - [x] Batch 2: Eligibility
+    - [x] Task 3: EligibilityCriteriaEvaluator SPI + LLM impl
   - [ ] Batch 3: Safety
     - [ ] Task 4: LlmSusarCriteriaEvaluator
   - [ ] Batch 4: DSMB
