@@ -1,25 +1,24 @@
-# Session Handover — 2026-08-09
+# Session Handover — 2026-09-11
 
 ## Last Session
 
-Closed #146 (DSMB WorkItem for batch-detected safety signals). Landed as 3050e1a on main. Changes: two-phase transaction split in TrialSafetyAggregationJob for WorkItem creation with error isolation, DsmbBatchSignalNotifier following DefaultSafetyOfficerNotifier pattern, DsmbBatchSignalNotificationLedgerEntry for audit trail, V129 migration (workItemId + unique constraint), V2032 migration (notification ledger join table), configurable SLA/expiry/connector. Design review (light, 3 dimensions) surfaced transaction boundary, Connector API, and ledger audit issues — all addressed before implementation. 3 garden entries submitted (tenant mismatch gotcha, scheduler exclusion gotcha, two-phase tx technique). Blog entry written.
+Epic #160 (Live LLM agent execution via AgentProvider). Designed full agent architecture: 7 decisions, light decision review, light spec review — both caught substantive issues (InvocationComplete model field, ComplianceSupplement ownership, eligibility integration gap, SUSAR WorkerResult mapping, Grade 3 scope, per-agent fallback policy). Batch 1 (Foundation) complete: `ClinicalAgentSupport` shared utility + bootstrap dependencies + `LlmProtocolAmendmentAdvisor` refactored to use Jackson. Also fixed pre-existing `PlanCbrCase`/`TextualCbrCase` → `FeatureVectorCbrCase` neocortex SNAPSHOT rename across ~30 files.
 
 ## Immediate Next Step
 
-Pick from What's Next — #99/#104 (guided mode steps) or #147 (escalation re-evaluation).
+Resume #160 implementation — Batch 2: Eligibility screening agent (`EligibilityCriteriaEvaluator` SPI + LLM impl + REST endpoint).
 
-## What's Left
+## References
 
-- **PiResponseListenerIntegrationTest** — pre-existing flake, passes on retry
+- Spec: `specs/issue-160-live-llm-agent-execution/2026-09-11-live-llm-agent-execution-design.md`
+- Decisions: `specs/issue-160-live-llm-agent-execution/decisions.md`
+- Plan: `plans/2026-09-11-live-llm-agent-execution.md`
+- Journal: `JOURNAL.md` (session 1 entry)
+
+## Known Flakes
+
+- **PiResponseListenerIntegrationTest** — pre-existing, passes on retry
 - **AeEscalationLifecycleTest** — pre-existing async engine lifecycle flake
 - **DsmbRollupTest** — pre-existing async engine lifecycle flake
-- **CbrRetrievalAuditIntegrationTest** — pre-existing flake (CBR state contamination), passes on retry
-- **ClinicalCaseOutcomeObserverIntegrationTest** — pre-existing flake (CBR state contamination), passes on retry
-
-## What's Next
-
-| # | Description | Scale | Complexity | Notes |
-|---|-------------|-------|------------|-------|
-| #99 | Guided Steps 3-4: AE Event + Governance | M | High | |
-| #104 | Guided Steps 3-4: Deviation + PI Auth | M | High | |
-| #147 | Re-evaluate escalation on upgrade when engineCaseId exists | M | High | Clinical-scoped |
+- **CbrRetrievalAuditIntegrationTest** — pre-existing CBR state contamination flake
+- **ClinicalCaseOutcomeObserverIntegrationTest** — pre-existing CBR state contamination flake
