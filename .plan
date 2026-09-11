@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-160-live-llm-agent-execution
-state: scaffolded
+state: active
 project-sha: 4b0a83187f769e45da724bc5843603c97385a6b2
 date: 2026-09-11
 issue-repo: casehubio/clinical
@@ -14,7 +14,7 @@ flyway-next-v: none
 ## Queue
 - [ ] casehubio/clinical#160 — Issue #160 ← active
   - [ ] Batch 1: Foundation
-    - [ ] Task 1: ClinicalAgentSupport shared utility
+    - [x] Task 1: ClinicalAgentSupport shared utility
     - [ ] Task 2: Bootstrap deps + refactor LlmProtocolAmendmentAdvisor
   - [ ] Batch 2: Eligibility
     - [ ] Task 3: EligibilityCriteriaEvaluator SPI + LLM impl
