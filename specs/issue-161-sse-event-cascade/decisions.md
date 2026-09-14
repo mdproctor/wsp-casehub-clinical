@@ -9,3 +9,16 @@
 **Sources:** `casehub-pages-push` EventBroadcaster, `pages-data` EventConnection, `pages-data` SSEManager
 **Exploration:** quick
 **Status:** captured
+
+## D2: UI placement
+
+**Choice:** New "Live Cascade" tab in the safety workbench, activated on AE selection
+**Alternatives:**
+- Separate top-level view under Review — more screen real estate but disconnects cascade from AE context
+- Replace/enhance Audit Trail tab — conceptually related but audit trail is retrospective (ledger entries) while cascade is live orchestration
+**Rationale:** Users are already in the safety workbench looking at AE details. Watching the cascade unfold for the selected AE is a natural extension of the existing flow.
+**Trade-offs:** Tab count grows (now 9) — manageable but worth watching
+**Sources:** `safety-workbench.ts` existing tab structure, issue #161 UI integration requirements
+**Exploration:** quick
+**Depends on:** D1 (push mechanism determines what data feeds the tab)
+**Status:** captured
