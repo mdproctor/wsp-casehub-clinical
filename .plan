@@ -1,0 +1,15 @@
+# Work Plan — issue-161-sse-event-cascade
+
+## State
+branch: issue-161-sse-event-cascade
+state: scaffolded
+project-sha: 343d98d82f2ab6fbcd17fb7f5ec9fec13b0094c0
+date: 2026-09-14
+issue-repo: casehubio/clinical
+covers: 161
+design-repo: workspace
+design-section-hashes: 
+flyway-next-v: unknown
+
+## Queue
+- [ ] casehubio/clinical#161 — Issue #161 ← active
