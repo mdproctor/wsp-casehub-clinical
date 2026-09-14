@@ -130,11 +130,20 @@ The `data` payload is capped at 4 KB when serialized. For AGENT_RESULT, include 
 
 The full cascade path depends on the AE grade and flags:
 
-| Grade | Steps |
-|-------|-------|
+| Condition | Steps |
+|-----------|-------|
 | Grade 1-2 | AE_REPORTED → SLA_ASSIGNED → LEDGER_SEALED |
-| Grade 3+ | AE_REPORTED → SLA_ASSIGNED → ESCALATION_CASE_STARTED → AGENT_SELECTED → AGENT_REASONING → AGENT_RESULT → GATE_OPENED → GATE_RESOLVED → SAFETY_OFFICER_NOTIFIED → LEDGER_SEALED |
-| Grade 3+ unexpected+suspected (SUSAR) | Same as Grade 3+ plus REGULATORY_SUBMISSION_STARTED after GATE_RESOLVED |
+| Grade 3+ (baseline) | AE_REPORTED → SLA_ASSIGNED → ∥ ESCALATION_CASE_STARTED → AGENT_SELECTED → AGENT_REASONING → AGENT_RESULT → LEDGER_SEALED · ∥ SAFETY_OFFICER_NOTIFIED |
+| + unexpected (IND reportable) | Adds ∥ REGULATORY_SUBMISSION_STARTED (concurrent at report time) |
+| + unexpected + suspected (SUSAR) | Adds GATE_OPENED → GATE_RESOLVED (after AGENT_RESULT, before LEDGER_SEALED) |
+
+**Step concurrency:** Steps marked ∥ fire from independent `@ObservesAsync AdverseEventReportedEvent` observers and execute concurrently. The cascade is a DAG: ESCALATION_CASE_STARTED, SAFETY_OFFICER_NOTIFIED, and REGULATORY_SUBMISSION_STARTED are parallel branches rooted at `AdverseEventReportedEvent`. The template lists them for completeness; the timeline renders concurrent branches visually.
+
+**GATE_OPENED/GATE_RESOLVED scope:** These steps appear ONLY for SUSAR cases (unexpected + suspected). The SUSAR oversight gate is opened by `SusarOversightCaseService` as part of the escalation case's susar-oversight subcase. Non-SUSAR Grade 3+ cases skip these steps entirely.
+
+**GATE_RESOLVED outcomes:** The gate carries one of three outcomes in `CascadeEvent.data`: `approved` (PI confirmed), `rejected` (PI rejected), or `expired` (gate timed out without action via `ActionGateExpiredEvent`). Gate expiry is a legitimate outcome handled by `SusarGateDecisionListener.onExpired()`.
+
+**IND reporting condition:** `REGULATORY_SUBMISSION_STARTED` fires for Grade 3+ unexpected AEs regardless of the `suspected` flag — it represents IND expedited safety reporting (21 CFR 312.32), which is independent of the SUSAR determination. `RegulatorySubmissionCaseService` checks `isIndReportable(grade) && unexpected`, not SUSAR criteria.
 
 **Grade 1-2 rationale:** Grade 1-2 AEs do not fire `AdverseEventReportedEvent` (the CDI event only fires when `engineCaseRequired()` is true — Grade 3+). Grade 1-2 AEs are handled synchronously via WorkItem creation in `AdverseEventService.reportAdverseEvent()`. Safety officer notification is not triggered for Grade 1-2 AEs via the CDI observer path, so SAFETY_OFFICER_NOTIFIED is excluded from the Grade 1-2 template.
 
@@ -146,15 +155,15 @@ The full cascade path depends on the AE grade and flags:
 
 ### WebSocket endpoint
 
-`ClinicalPushEndpoint` — a Quarkus `@ServerEndpoint("/ws/push")` that:
+`ClinicalPushEndpoint` — a Quarkus WebSockets Next `@WebSocket(path = "/ws/push")` endpoint, following the reference implementation pattern (`PushWebSocket` in `pages/examples/server/`). Uses `WebSocketConnection` (Vert.x-native, CDI-injectable) rather than Jakarta `@ServerEndpoint` / `Session`:
 
-1. On `@OnOpen`, stores the WebSocket `Session` in a concurrent map keyed by session ID
-2. On `@OnMessage`, parses JSON into `PushRequest` variants, routes to `PushRequestHandler` implementations (scenario handler, listen/unlisten handler)
-3. On `@OnClose`, removes the session from the map and calls `TopicRegistry.removeConnection()`
+1. `@OnOpen` — registers the `WebSocketConnection` in a `ConnectionRegistry` (concurrent map keyed by `connection.id()`)
+2. `@OnTextMessage` — parses JSON via `PushRequest.parse(message)`, pattern-matches on `Listen`, `Unlisten`, `Subscribe`, `Unsubscribe` variants
+3. `@OnClose` — calls `TopicRegistry.removeConnection(connection.id())` and removes from `ConnectionRegistry`
 
-`ClinicalSessionSender` — a separate `@ApplicationScoped` bean implementing `SessionSender` that holds the session map (shared with the endpoint via injection). This satisfies `PushProducers`' `SessionSender` injection point cleanly — the endpoint and the sender are separate CDI beans, avoiding the complication of a `@ServerEndpoint` needing to also be a CDI-injectable `SessionSender`.
+`ClinicalSessionSender` — a separate `@ApplicationScoped` bean implementing `SessionSender` that wraps `ConnectionRegistry`. On `send(connectionId, json)`, looks up the `WebSocketConnection` and calls `connection.sendTextAndAwait(json)`. This satisfies `PushProducers`' `SessionSender` injection point — the endpoint and sender are separate CDI beans.
 
-This endpoint is generic — it handles all push topics (cascade events, future data push, etc.). The scenario framework's existing `ScenarioPushHandler` plugs in as a `PushRequestHandler` alongside the listen/unlisten handler.
+This endpoint is generic — it handles all push topics (cascade events, future data push, etc.) and all `PushRequest` variants (listen/unlisten for event topics, subscribe/unsubscribe for dataset subscriptions).
 
 ### ClinicalCascadeBroadcaster
 
@@ -169,22 +178,27 @@ Gate events (`ActionGateApprovedEvent`, `ActionGateRejectedEvent`, `ActionGateEx
 
 **caseId → aeId resolution:** Gate and engine events carry `caseId`, not `aeId`. The broadcaster calls `AdverseEvent.findBySusarOversightCaseId(caseId)` to resolve the AE ID for topic construction — the same pattern used by `SusarGateDecisionListener` and `SusarAgentAttestationWriter`.
 
-Each event observer maps to one or more cascade step broadcasts:
+**Ownership principle:** `ClinicalCascadeBroadcaster` is the single class responsible for constructing and sending ALL cascade events. No domain service touches `EventBroadcaster` directly for cascade topics. The broadcaster receives triggers via two mechanisms:
 
-| Event | Observer Pattern | Cascade Steps |
-|-------|-----------------|---------------|
+1. **Event observation** (CDI `@ObservesAsync` / Vert.x `@ConsumeEvent`) — for domain events that already exist or have standalone architectural value
+2. **Typed method calls** — domain services call `broadcaster.notifySafetyOfficer(aeId, ...)` etc. when no domain event exists. The broadcast construction logic lives in the broadcaster; the call site is a one-liner.
+
+This gives centralized completeness (one class owns all 11 step types) and centralized testing (mock `EventBroadcaster`, test the broadcaster class alone for all paths).
+
+| Event / Trigger | Mechanism | Cascade Steps |
+|-----------------|-----------|---------------|
 | `AdverseEventReportedEvent` | CDI `@ObservesAsync` | AE_REPORTED (completed) + SLA_ASSIGNED (completed) |
 | `AeEscalationStartedEvent` (new) | CDI `@ObservesAsync` | ESCALATION_CASE_STARTED (completed) |
-| Escalation failure | CDI `@ObservesAsync AeEscalationFailedEvent` (new) | ESCALATION_CASE_STARTED (failed) |
-| Engine trust routing | Hook in `ClinicalSusarOversightCaseHub` | AGENT_SELECTED (completed, with trust score in data) |
-| Agent invocation start | Hook in `ClinicalAgentSupport` | AGENT_REASONING (active) |
-| Agent invocation complete | Hook in `ClinicalAgentSupport` | AGENT_RESULT (completed, with parsed result — not raw LLM text) |
+| `AeEscalationFailedEvent` (new) | CDI `@ObservesAsync` | ESCALATION_CASE_STARTED (failed) |
+| Trust routing decision | `broadcaster.agentSelected(aeId, agentId, trustScore)` called from engine worker resolution (policy from `ClinicalTrustRoutingPolicyProvider`) | AGENT_SELECTED (completed, with trust score in data) |
+| Agent invocation start | `broadcaster.agentReasoning(aeId, configKey)` called from `ClinicalAgentSupport.invoke()` when `cascadeAeId` non-null | AGENT_REASONING (active) |
+| Agent invocation complete | `broadcaster.agentResult(aeId, configKey, success)` called from `ClinicalAgentSupport.invoke()` when `cascadeAeId` non-null | AGENT_RESULT (completed, with parsed result — not raw LLM text) |
 | `ActionGateApprovedEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.approved")` | GATE_OPENED (completed) + GATE_RESOLVED (completed, data: `{decision: "approved", approvedBy: ...}`) |
 | `ActionGateRejectedEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.rejected")` | GATE_OPENED (completed) + GATE_RESOLVED (completed, data: `{decision: "rejected"}`) |
 | `ActionGateExpiredEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.expired")` | GATE_OPENED (completed) + GATE_RESOLVED (failed, data: `{decision: "expired"}`) |
-| Safety officer notification sent | Hook in `SafetyOfficerNotificationListener` | SAFETY_OFFICER_NOTIFIED (completed) |
-| Regulatory submission case started | Hook in `RegulatorySubmissionCaseService` | REGULATORY_SUBMISSION_STARTED (completed) |
-| Ledger entry saved | Hook in `AdverseEventLedgerWriter` | LEDGER_SEALED (completed, with digest) |
+| Safety officer notified | `broadcaster.safetyOfficerNotified(aeId)` called from `SafetyOfficerNotificationListener` after successful notification | SAFETY_OFFICER_NOTIFIED (completed) |
+| Regulatory submission started | `broadcaster.regulatorySubmissionStarted(aeId, caseId)` called from `RegulatorySubmissionCaseService` | REGULATORY_SUBMISSION_STARTED (completed) |
+| `CaseLifecycleEvent` (GoalReached / CaseCompleted) | CDI `@ObservesAsync` in broadcaster (parallel to `AeEscalationListener`) | LEDGER_SEALED (completed, with digest from completion ledger entry) |
 
 ### Grade 1-2 AE cascade broadcast
 
@@ -214,7 +228,21 @@ The existing `AdverseEventReportedEvent` fires before the escalation case starts
 
 ### Agent execution hooks
 
-`ClinicalAgentSupport.invoke()` (from #160) is the shared utility that calls `agentProvider.invoke()`. Add before/after hooks that broadcast `AGENT_REASONING` (active) before invocation and `AGENT_RESULT` (completed) after. The AE ID must be threaded through — the `ClinicalAgentSupport` API will accept an optional `UUID cascadeAeId` parameter. When non-null, it broadcasts.
+`ClinicalAgentSupport.invoke()` (from #160) is the shared utility that calls `agentProvider.invoke()`. Add before/after hooks that broadcast `AGENT_REASONING` (active) before invocation and `AGENT_RESULT` (completed) after. The AE ID is threaded through via the `ClinicalAgentRequest` record — add a `UUID cascadeAeId` field:
+
+```java
+public record ClinicalAgentRequest<T>(
+    String systemPrompt,
+    String userPrompt,
+    Class<T> responseClass,
+    T fallbackValue,
+    String configKey,
+    String correlationId,
+    UUID cascadeAeId   // null for non-cascade invocations
+) {}
+```
+
+When `cascadeAeId` is non-null, `ClinicalAgentSupport.invoke()` broadcasts AGENT_REASONING before and AGENT_RESULT after invocation. Existing callers pass `null` — records support null fields cleanly and the broadcast hook is a no-op when `cascadeAeId` is null.
 
 ## Section 4: Cascade REST Endpoint
 
@@ -243,7 +271,7 @@ The endpoint queries persistent domain state and infers cascade step status. Eac
 | GATE_RESOLVED | Engine case gate state + `SusarDecisionLedgerWriter` entries | If gate decision ledger entry exists → completed (data carries decision); otherwise → pending |
 | SAFETY_OFFICER_NOTIFIED | `SafetyOfficerNotificationLedgerWriter` entries | Ledger entry exists → completed; skipped entry exists → skipped; otherwise → pending |
 | REGULATORY_SUBMISSION_STARTED | `AdverseEvent.regulatorySubmissionCaseId` | Non-null → completed; `regulatorySubmissionStatus = PENDING` → active; otherwise → pending |
-| LEDGER_SEALED | `LedgerEntryRepository.findLatestBySubjectId(aeId)` | Entry exists → completed |
+| LEDGER_SEALED | `AeEscalationLedgerEntry` with actorRole `AeEscalationCase` (Grade 3+); initial `AdverseEventLedgerEntry` (Grade 1-2) | Grade 3+: completion entry exists → completed. Grade 1-2: initial report entry exists → completed (Grade 1-2 cascade is synchronous — LEDGER_SEALED represents the initial report ledger write). |
 
 **Transient steps after restart:** Agent lifecycle steps (AGENT_SELECTED, AGENT_REASONING, AGENT_RESULT) are transient — they cannot be precisely reconstructed after JVM restart. The endpoint infers completion from engine case progression: if the case has advanced past the agent phase, those steps are marked as completed. If the case is mid-execution, they show as pending (the case will re-emit events when it resumes).
 
@@ -334,7 +362,7 @@ Add a "Live Cascade" tab to the safety workbench (`safety-workbench.ts`). The ta
 3. Renders using the existing `event-timeline` pages-viz component with `cascadeTimelineStrategy`
 4. Shows connection status indicator (connected/reconnecting/disconnected)
 
-The component follows the existing clinical web component pattern (`ClinicalPiApproval`, `ClinicalSusarGate`, `ClinicalMerkleVerify`) — light DOM, attribute-driven, registered in `index.ts`.
+The component follows the existing clinical web component pattern (`ClinicalAeGradeHistory`, `ClinicalAeRegrade`, `ClinicalTrustFeedbackDisplay`) — light DOM, attribute-driven, registered in `index.ts` via the `components` array with `customElements.define()`.
 
 ## Section 6: Testing
 
@@ -360,8 +388,8 @@ The component follows the existing clinical web component pattern (`ClinicalPiAp
 ## Section 7: Configuration
 
 ```properties
-# Push event store buffer size (in-memory, per topic)
-casehub.pages.push.buffer-size=100
+# Push event store capacity (in-memory, per topic) — matches PushProducers @ConfigProperty
+casehub.pages.push.max-events-per-topic=100
 # Topic eviction: remove topic buffers with no subscribers and no activity for this duration
 casehub.pages.push.topic-eviction-idle=PT1H
 # Maximum serialized size of CascadeEvent.data payload (bytes)
