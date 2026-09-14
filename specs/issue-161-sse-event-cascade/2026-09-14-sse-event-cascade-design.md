@@ -129,11 +129,13 @@ The full cascade path depends on the AE grade and flags:
 
 `ClinicalPushEndpoint` — a Quarkus `@ServerEndpoint("/ws/push")` that:
 
-1. Implements `SessionSender` (bridges to WebSocket sessions)
-2. On `@OnMessage`, parses JSON into `PushRequest` variants, routes to `PushRequestHandler` implementations
-3. On `@OnOpen`/`@OnClose`, manages the `TopicRegistry` connection lifecycle
+1. On `@OnOpen`, stores the WebSocket `Session` in a concurrent map keyed by session ID
+2. On `@OnMessage`, parses JSON into `PushRequest` variants, routes to `PushRequestHandler` implementations (scenario handler, listen/unlisten handler)
+3. On `@OnClose`, removes the session from the map and calls `TopicRegistry.removeConnection()`
 
-This endpoint is generic — it handles all push topics (cascade events, future data push, etc.). The scenario framework's existing `ScenarioPushHandler` plugs in as a `PushRequestHandler` alongside the new cascade handler.
+`ClinicalSessionSender` — a separate `@ApplicationScoped` bean implementing `SessionSender` that holds the session map (shared with the endpoint via injection). This satisfies `PushProducers`' `SessionSender` injection point cleanly — the endpoint and the sender are separate CDI beans, avoiding the complication of a `@ServerEndpoint` needing to also be a CDI-injectable `SessionSender`.
+
+This endpoint is generic — it handles all push topics (cascade events, future data push, etc.). The scenario framework's existing `ScenarioPushHandler` plugs in as a `PushRequestHandler` alongside the listen/unlisten handler.
 
 ### ClinicalCascadeBroadcaster
 
