@@ -10,19 +10,19 @@ When an adverse event is reported, the platform fires a cascade: SLA timer → S
 
 ## Goal
 
-Users watch the cascade unfold in real time: event reported → SLA assigned → agent selected (with trust score) → agent reasoning → gate decision → trust update → Merkle entry sealed. Each step shows timestamp, what happened, who/what decided, and duration.
+Users watch the cascade unfold in real time: event reported → SLA assigned → agent selected (with trust score) → agent reasoning → gate decision → Merkle entry sealed. Each step shows timestamp, what happened, who/what decided, and duration.
 
 ## Architecture Overview
 
 ```
-CDI Events (server)                    WebSocket (push)                      UI (client)
+CDI + Vert.x Events (server)           WebSocket (push)                      UI (client)
 ┌─────────────────────┐               ┌──────────────────┐                 ┌──────────────────┐
 │ AdverseEventService │               │ EventBroadcaster │                 │ EventConnection  │
 │ AeEscalationListener│──broadcast()─→│ (pages-push)     │──WebSocket──→  │ (pages-data)     │
 │ SusarGateDecision   │               │                  │                 │                  │
 │ SafetyOfficerNotif  │               │ topic:           │                 │ listens:         │
-│ LedgerWriters       │               │ clinical/ae/     │                 │ clinical/ae/     │
-│ TrustScoreJob       │               │   {aeId}/cascade │                 │   {aeId}/cascade │
+│ LedgerWriters       │               │ clinical:ae:     │                 │ clinical:ae:     │
+│                     │               │   {aeId}:cascade │                 │   {aeId}:cascade │
 └─────────────────────┘               └──────────────────┘                 └──────────────────┘
                                                                                     │
                                                                            ┌────────▼─────────┐
@@ -37,7 +37,7 @@ CDI Events (server)                    WebSocket (push)                      UI 
 
 Three layers, all reusing existing platform infrastructure:
 
-1. **Server bridge** — CDI event observers call `EventBroadcaster.broadcast()` on a per-AE topic
+1. **Server bridge** — CDI event observers and Vert.x event bus consumers call `EventBroadcaster.broadcast()` on a per-AE topic
 2. **Push transport** — `casehub-pages-push` handles WebSocket delivery, topic subscriptions, sequence tracking, gap detection, reconnection
 3. **UI timeline** — `EventTimelineNode` with `eventChronologyStrategy` renders the cascade with status transitions
 
@@ -74,10 +74,10 @@ quarkus.index-dependency.pages-push-runtime.artifact-id=casehub-pages-push-runti
 ### Topic structure
 
 ```
-clinical/ae/{aeId}/cascade
+clinical:ae:{aeId}:cascade
 ```
 
-One topic per AE. Clients subscribe when an AE is selected in the safety workbench, unsubscribe on deselection.
+One topic per AE. Uses `:` segment separator — the platform convention enforced by `TopicRegistry` (trie-based matching) and `topic-matching.ts` (client-side pattern matching). Clients subscribe when an AE is selected in the safety workbench, unsubscribe on deselection.
 
 ### CascadeStepType enum (api module)
 
@@ -93,8 +93,21 @@ public enum CascadeStepType {
     GATE_RESOLVED,
     SAFETY_OFFICER_NOTIFIED,
     REGULATORY_SUBMISSION_STARTED,
-    TRUST_UPDATED,
     LEDGER_SEALED
+}
+```
+
+TRUST_UPDATED is excluded — trust score computation is a 24h batch job (`TrustScoreJob`, `@Scheduled(every = "24h")`), not a real-time cascade step. Trust scores are available via the REST endpoint's trust service query but are not part of the live cascade.
+
+### CascadeStepStatus enum (api module)
+
+```java
+public enum CascadeStepStatus {
+    PENDING,
+    ACTIVE,
+    COMPLETED,
+    FAILED,
+    SKIPPED
 }
 ```
 
@@ -103,13 +116,15 @@ public enum CascadeStepType {
 ```java
 public record CascadeEvent(
     CascadeStepType step,
-    String status,          // "pending", "active", "completed", "failed", "skipped"
+    CascadeStepStatus status,
     Instant timestamp,
     String actor,           // who/what — "system", agent name, "PI: demo-pi", etc.
     String detail,          // human-readable summary
-    Map<String, Object> data // structured payload (trust score, grade, gate decision, etc.)
+    Map<String, Object> data // structured payload (grade, gate decision, etc.)
 ) {}
 ```
+
+The `data` payload is capped at 4 KB when serialized. For AGENT_RESULT, include only the agent's structured JSON output (the parsed result), not the raw LLM text response. `ClinicalAgentSupport.invoke()` returns `ClinicalAgentResult<T>` — the `data` field carries the parsed `T` value, not `rawText`.
 
 ### Cascade template (grade-aware)
 
@@ -117,11 +132,15 @@ The full cascade path depends on the AE grade and flags:
 
 | Grade | Steps |
 |-------|-------|
-| Grade 1-2 | AE_REPORTED → SLA_ASSIGNED → SAFETY_OFFICER_NOTIFIED → LEDGER_SEALED |
-| Grade 3+ | AE_REPORTED → SLA_ASSIGNED → ESCALATION_CASE_STARTED → AGENT_SELECTED → AGENT_REASONING → AGENT_RESULT → GATE_OPENED → GATE_RESOLVED → SAFETY_OFFICER_NOTIFIED → TRUST_UPDATED → LEDGER_SEALED |
+| Grade 1-2 | AE_REPORTED → SLA_ASSIGNED → LEDGER_SEALED |
+| Grade 3+ | AE_REPORTED → SLA_ASSIGNED → ESCALATION_CASE_STARTED → AGENT_SELECTED → AGENT_REASONING → AGENT_RESULT → GATE_OPENED → GATE_RESOLVED → SAFETY_OFFICER_NOTIFIED → LEDGER_SEALED |
 | Grade 3+ unexpected+suspected (SUSAR) | Same as Grade 3+ plus REGULATORY_SUBMISSION_STARTED after GATE_RESOLVED |
 
+**Grade 1-2 rationale:** Grade 1-2 AEs do not fire `AdverseEventReportedEvent` (the CDI event only fires when `engineCaseRequired()` is true — Grade 3+). Grade 1-2 AEs are handled synchronously via WorkItem creation in `AdverseEventService.reportAdverseEvent()`. Safety officer notification is not triggered for Grade 1-2 AEs via the CDI observer path, so SAFETY_OFFICER_NOTIFIED is excluded from the Grade 1-2 template.
+
 `CascadeTemplateResolver` provides the expected step list for a given AE. The timeline renders all expected steps as "pending" initially, then transitions them as events arrive.
+
+**Ordering guarantee:** Events may arrive out of template order due to concurrent `@ObservesAsync` CDI observers and Vert.x event bus consumers. The client renders steps in template position order, matching each event to its template slot by `CascadeStepType`. Arrival order is irrelevant to rendering.
 
 ## Section 3: Server-Side Push Endpoint
 
@@ -142,32 +161,50 @@ This endpoint is generic — it handles all push topics (cascade events, future 
 `@ApplicationScoped` service that:
 
 1. Injects `EventBroadcaster`
-2. Observes clinical CDI events and broadcasts cascade steps
+2. Observes clinical domain events via two mechanisms:
+   - **CDI `@ObservesAsync`** — for events fired via `Event.fireAsync()` (e.g., `AdverseEventReportedEvent`)
+   - **Vert.x `@ConsumeEvent`** — for events published via `EventBus.publish()` (e.g., gate decision events)
 
-Each CDI event observer maps to one or more cascade step broadcasts:
+Gate events (`ActionGateApprovedEvent`, `ActionGateRejectedEvent`, `ActionGateExpiredEvent`) are Vert.x event bus messages, not CDI events. `ActionGateCompletionApplier` fires them via `eventBus.publish()`, delivering to ALL registered consumers. Multiple consumers already coexist on these addresses (`SusarGateDecisionListener` + `SusarAgentAttestationWriter`); the broadcaster adds a third.
 
-| CDI Event | Observer | Cascade Steps |
-|-----------|----------|---------------|
-| `AdverseEventReportedEvent` | `@ObservesAsync` | AE_REPORTED (completed) + SLA_ASSIGNED (completed) |
-| `AeEscalationStartedEvent` (new) | `@ObservesAsync` | ESCALATION_CASE_STARTED (completed) |
+**caseId → aeId resolution:** Gate and engine events carry `caseId`, not `aeId`. The broadcaster calls `AdverseEvent.findBySusarOversightCaseId(caseId)` to resolve the AE ID for topic construction — the same pattern used by `SusarGateDecisionListener` and `SusarAgentAttestationWriter`.
+
+Each event observer maps to one or more cascade step broadcasts:
+
+| Event | Observer Pattern | Cascade Steps |
+|-------|-----------------|---------------|
+| `AdverseEventReportedEvent` | CDI `@ObservesAsync` | AE_REPORTED (completed) + SLA_ASSIGNED (completed) |
+| `AeEscalationStartedEvent` (new) | CDI `@ObservesAsync` | ESCALATION_CASE_STARTED (completed) |
+| Escalation failure | CDI `@ObservesAsync AeEscalationFailedEvent` (new) | ESCALATION_CASE_STARTED (failed) |
 | Engine trust routing | Hook in `ClinicalSusarOversightCaseHub` | AGENT_SELECTED (completed, with trust score in data) |
 | Agent invocation start | Hook in `ClinicalAgentSupport` | AGENT_REASONING (active) |
-| Agent invocation complete | Hook in `ClinicalAgentSupport` | AGENT_RESULT (completed, with agent output) |
-| `ActionGateApprovedEvent` / `ActionGateRejectedEvent` | Existing listeners + broadcast | GATE_OPENED → GATE_RESOLVED (completed) |
+| Agent invocation complete | Hook in `ClinicalAgentSupport` | AGENT_RESULT (completed, with parsed result — not raw LLM text) |
+| `ActionGateApprovedEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.approved")` | GATE_OPENED (completed) + GATE_RESOLVED (completed, data: `{decision: "approved", approvedBy: ...}`) |
+| `ActionGateRejectedEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.rejected")` | GATE_OPENED (completed) + GATE_RESOLVED (completed, data: `{decision: "rejected"}`) |
+| `ActionGateExpiredEvent` | Vert.x `@ConsumeEvent("casehub.action.gate.expired")` | GATE_OPENED (completed) + GATE_RESOLVED (failed, data: `{decision: "expired"}`) |
 | Safety officer notification sent | Hook in `SafetyOfficerNotificationListener` | SAFETY_OFFICER_NOTIFIED (completed) |
 | Regulatory submission case started | Hook in `RegulatorySubmissionCaseService` | REGULATORY_SUBMISSION_STARTED (completed) |
-| Trust score recomputed | Hook in `TrustScoreJob` or `SusarGateDecisionListener` | TRUST_UPDATED (completed, with new score) |
 | Ledger entry saved | Hook in `AdverseEventLedgerWriter` | LEDGER_SEALED (completed, with digest) |
+
+### Grade 1-2 AE cascade broadcast
+
+Grade 1-2 AEs do not fire `AdverseEventReportedEvent`. All cascade steps complete synchronously within `AdverseEventService.reportAdverseEvent()`. The broadcaster is triggered via a `TransactionSynchronization.afterCompletion()` hook in `AdverseEventService` — consistent with the existing after-commit CDI event pattern for Grade 3+ AEs.
+
+After the transaction commits, broadcast `AE_REPORTED (completed)`, `SLA_ASSIGNED (completed)`, and `LEDGER_SEALED (completed)` on the per-AE cascade topic.
+
+### Failure broadcasting
+
+When `AeEscalationCaseService.onAdverseEventReported()` catches an exception from `startCase()`, it calls `markFailed()`. A new `AeEscalationFailedEvent` CDI event is fired in `markFailed()`, which the broadcaster observes to emit `ESCALATION_CASE_STARTED (failed)`. All subsequent cascade steps (`AGENT_SELECTED`, `AGENT_REASONING`, etc.) are emitted as `skipped` by the broadcaster, since the escalation case never started.
 
 ### Broadcast pattern
 
 ```java
 @Inject EventBroadcaster broadcaster;
 
-void broadcastStep(UUID aeId, CascadeStepType step, String actor, String detail, Map<String, Object> data) {
-    String topic = "clinical/ae/" + aeId + "/cascade";
-    broadcaster.broadcast(topic, new CascadeEvent(
-        step, "completed", Instant.now(), actor, detail, data));
+void broadcastStep(UUID aeId, CascadeStepType step, CascadeStepStatus status,
+                   String actor, String detail, Map<String, Object> data) {
+    String topic = "clinical:ae:" + aeId + ":cascade";
+    broadcaster.broadcast(topic, new CascadeEvent(step, status, Instant.now(), actor, detail, data));
 }
 ```
 
@@ -190,11 +227,25 @@ Returns the current cascade state — the template with completed steps filled i
 
 Response: `List<CascadeEvent>` — all expected steps with current status.
 
-The endpoint queries:
-- `AdverseEvent` entity for grade, flags, timestamps
-- Engine case state for escalation/gate status
-- Ledger entries for seal status
-- Trust service for current scores
+### State reconstruction rules
+
+The endpoint queries persistent domain state and infers cascade step status. Each step type has a defined reconstruction rule:
+
+| Step | Source | Reconstruction Rule |
+|------|--------|-------------------|
+| AE_REPORTED | `AdverseEvent.reportedAt` | Non-null → completed |
+| SLA_ASSIGNED | `AdverseEvent.slaDeadline` | Non-null → completed |
+| ESCALATION_CASE_STARTED | `AdverseEvent.engineCaseId` + `escalationStatus` | `engineCaseId` non-null → completed; `escalationStatus = FAILED` → failed; `escalationStatus = REQUESTED` → active; otherwise → pending |
+| AGENT_SELECTED | Engine case progression | If case has passed agent selection phase (gate is open or resolved) → completed; if case is active and in agent phase → active; otherwise → pending |
+| AGENT_REASONING | Engine case progression | Same heuristic — if case progressed past agent phase → completed; cannot reconstruct "active" after restart (transient state) |
+| AGENT_RESULT | Engine case progression | Same as AGENT_REASONING — inferred from case progression |
+| GATE_OPENED | Engine case gate state | If gate exists in case → completed; otherwise → pending |
+| GATE_RESOLVED | Engine case gate state + `SusarDecisionLedgerWriter` entries | If gate decision ledger entry exists → completed (data carries decision); otherwise → pending |
+| SAFETY_OFFICER_NOTIFIED | `SafetyOfficerNotificationLedgerWriter` entries | Ledger entry exists → completed; skipped entry exists → skipped; otherwise → pending |
+| REGULATORY_SUBMISSION_STARTED | `AdverseEvent.regulatorySubmissionCaseId` | Non-null → completed; `regulatorySubmissionStatus = PENDING` → active; otherwise → pending |
+| LEDGER_SEALED | `LedgerEntryRepository.findLatestBySubjectId(aeId)` | Entry exists → completed |
+
+**Transient steps after restart:** Agent lifecycle steps (AGENT_SELECTED, AGENT_REASONING, AGENT_RESULT) are transient — they cannot be precisely reconstructed after JVM restart. The endpoint infers completion from engine case progression: if the case has advanced past the agent phase, those steps are marked as completed. If the case is mid-execution, they show as pending (the case will re-emit events when it resumes).
 
 This is a read-only projection — no new persistence needed.
 
@@ -206,7 +257,7 @@ When the user selects an AE in the safety workbench and switches to the "Live Ca
 
 1. Fetch `GET /api/adverse-events/{aeId}/cascade` for the current state
 2. Create an `EventConnection` to `ws://${host}/ws/push`
-3. Call `connection.listen(["clinical/ae/{aeId}/cascade"])`
+3. Call `connection.listen(["clinical:ae:{aeId}:cascade"])`
 4. On each `pages-event` CustomEvent, update the corresponding `EventTimelineNode` status
 
 On AE deselection or tab switch: `connection.unlisten()` + `connection.close()`.
@@ -227,7 +278,7 @@ export function cascadeTimelineStrategy(): EventTimelineStrategy<CascadeEvent[]>
       return data.map(event => ({
         key: event.step,
         label: STEP_LABELS[event.step],
-        status: event.status as EventNodeStatus,
+        status: event.status.toLowerCase() as EventNodeStatus,
         timestamp: event.timestamp,
         actor: event.actor,
         detail: event,
@@ -239,6 +290,8 @@ export function cascadeTimelineStrategy(): EventTimelineStrategy<CascadeEvent[]>
   };
 }
 ```
+
+**Merge semantics:** When a WebSocket event arrives, the strategy matches by `CascadeStepType` (the `key`), not by arrival position. The node list preserves template order regardless of event arrival order.
 
 ### Step labels and categories
 
@@ -254,7 +307,6 @@ const STEP_LABELS: Record<string, string> = {
   GATE_RESOLVED: 'Oversight Gate Resolved',
   SAFETY_OFFICER_NOTIFIED: 'Safety Officer Notified',
   REGULATORY_SUBMISSION_STARTED: 'IND Submission Started',
-  TRUST_UPDATED: 'Trust Score Updated',
   LEDGER_SEALED: 'Merkle Entry Sealed',
 };
 
@@ -269,7 +321,6 @@ const STEP_CATEGORIES: Record<string, string> = {
   GATE_RESOLVED: 'gate',
   SAFETY_OFFICER_NOTIFIED: 'lifecycle',
   REGULATORY_SUBMISSION_STARTED: 'lifecycle',
-  TRUST_UPDATED: 'audit',
   LEDGER_SEALED: 'audit',
 };
 ```
@@ -311,9 +362,29 @@ The component follows the existing clinical web component pattern (`ClinicalPiAp
 ```properties
 # Push event store buffer size (in-memory, per topic)
 casehub.pages.push.buffer-size=100
+# Topic eviction: remove topic buffers with no subscribers and no activity for this duration
+casehub.pages.push.topic-eviction-idle=PT1H
+# Maximum serialized size of CascadeEvent.data payload (bytes)
+casehub.clinical.cascade.max-data-payload-bytes=4096
 ```
 
-No other configuration needed. The push infrastructure is self-contained with sensible defaults.
+### Topic eviction
+
+`InMemoryEventStore` creates one `TopicBuffer` per unique topic. With per-AE cascade topics (`clinical:ae:{aeId}:cascade`), the buffer map grows proportionally to total AEs ever reported. To prevent unbounded memory growth:
+
+- A periodic sweep (every 5 minutes) checks each topic buffer for idle time (no `append()` or `replay()` calls) and subscriber count (via `TopicRegistry.connections(topic)`).
+- Topics with zero subscribers AND idle time exceeding `topic-eviction-idle` (default: 1 hour) are evicted from the buffer map.
+- Evicted topics lose their event history — reconnecting clients use the REST endpoint for full state reconstruction.
+
+This bounds memory to active cascade topics only. A completed cascade with no viewers is evicted after 1 hour; reopening the AE triggers a REST fetch + fresh WebSocket subscription.
+
+### Resilience strategy
+
+Event delivery has three layers of defense:
+
+1. **In-flight delivery** — `EventBroadcaster.broadcast()` sends to all subscribed connections. Per-connection send failures are caught and swallowed (correct for broadcast — one broken connection must not block others).
+2. **Sequence gap replay** — `EventConnection` (client) tracks sequence numbers. On reconnection, it requests replay from `InMemoryEventStore` for missed sequence numbers.
+3. **Full state reconstruction** — if the event store buffer has rolled past the gap (buffer full or topic evicted), the client falls back to `GET /api/adverse-events/{aeId}/cascade` for full state reconstruction from persistent domain entities.
 
 ## Scope Boundaries
 
