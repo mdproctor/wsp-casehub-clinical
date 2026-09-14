@@ -1,19 +1,20 @@
-# Session Handover — 2026-09-11
+# Session Handover — 2026-09-14
 
 ## Last Session
 
-Epic #160 (Live LLM agent execution via AgentProvider). Designed full agent architecture: 7 decisions, light decision review, light spec review — both caught substantive issues (InvocationComplete model field, ComplianceSupplement ownership, eligibility integration gap, SUSAR WorkerResult mapping, Grade 3 scope, per-agent fallback policy). Batch 1 (Foundation) complete: `ClinicalAgentSupport` shared utility + bootstrap dependencies + `LlmProtocolAmendmentAdvisor` refactored to use Jackson. Also fixed pre-existing `PlanCbrCase`/`TextualCbrCase` → `FeatureVectorCbrCase` neocortex SNAPSHOT rename across ~30 files.
+Completed #160 (Live LLM agent execution via AgentProvider). Implemented all 5 batches: ClinicalAgentSupport shared utility, eligibility screening agent, SUSAR criteria evaluator, DSMB safety signal analyzer, trial supervision advisor. All use per-agent SPI displacement pattern with domain-appropriate conservative fallbacks. 44 new tests, 3 docs updated, Layer 11 added to LAYER-LOG. Branch closed and landed on main.
+
+Also filed casehubio/platform#294 (fuzzy LLM response replay strategy for scenario testing — belongs in scenario server, not clinical).
 
 ## Immediate Next Step
 
-Resume #160 implementation — Batch 2: Eligibility screening agent (`EligibilityCriteriaEvaluator` SPI + LLM impl + REST endpoint).
+Start #161 (Real-time event cascade — SSE for orchestration visibility). Unblocked by #160.
 
 ## References
 
-- Spec: `specs/issue-160-live-llm-agent-execution/2026-09-11-live-llm-agent-execution-design.md`
-- Decisions: `specs/issue-160-live-llm-agent-execution/decisions.md`
-- Plan: `plans/2026-09-11-live-llm-agent-execution.md`
-- Journal: `JOURNAL.md` (session 1 entry)
+- Diary: `blog/2026-09-11-mdp01-when-the-agents-stop-being-stubs.md`
+- Design spec: `specs/issue-160-live-llm-agent-execution/2026-09-11-live-llm-agent-execution-design.md`
+- Platform issue: casehubio/platform#294 (LLM replay strategy)
 
 ## Known Flakes
 
