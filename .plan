@@ -18,6 +18,6 @@ flyway-next-v: unknown
   - [x] Batch 2: Push+Broadcaster
     - [x] Task 2: WebSocket push endpoint
     - [x] Task 3: CascadeBroadcaster and domain hooks
-  - [ ] Batch 3: REST+UI
-    - [ ] Task 4: Cascade REST endpoint
-    - [ ] Task 5: Frontend cascade timeline component
+  - [x] Batch 3: REST+UI
+    - [x] Task 4: Cascade REST endpoint
+    - [x] Task 5: Frontend cascade timeline component
