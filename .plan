@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-164-agent-org-model-selection
-state: scaffolded
+state: active
 project-sha: f84132e411e74bb381848f9b6c7c1f708e622d04
 date: 2026-09-14
 issue-repo: casehubio/clinical
@@ -13,8 +13,8 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/clinical#164 — Issue #164 ← active
-  - [ ] Batch 1: Narratives
-    - [ ] Task 1: ClinicalNarrativeSignalStrategy + NarrativeResource
+  - [x] Batch 1: Narratives
+    - [x] Task 1: ClinicalNarrativeSignalStrategy + NarrativeResource
   - [ ] Batch 2: OrgTiers
     - [ ] Task 2: Org structure registration
     - [ ] Task 3: Model tier declarations
