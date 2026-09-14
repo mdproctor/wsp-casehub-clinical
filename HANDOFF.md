@@ -1,20 +1,19 @@
-# Session Handover — 2026-09-14
+# HANDOFF — casehub-clinical
 
 ## Last Session
 
-Completed #160 (Live LLM agent execution via AgentProvider). Implemented all 5 batches: ClinicalAgentSupport shared utility, eligibility screening agent, SUSAR criteria evaluator, DSMB safety signal analyzer, trial supervision advisor. All use per-agent SPI displacement pattern with domain-appropriate conservative fallbacks. 44 new tests, 3 docs updated, Layer 11 added to LAYER-LOG. Branch closed and landed on main.
-
-Also filed casehubio/platform#294 (fuzzy LLM response replay strategy for scenario testing — belongs in scenario server, not clinical).
+Designed and partially implemented #164 (Agent Organization + Model Selection). Completed 4 of 6 tasks: ClinicalNarrativeSignalStrategy (#165), org structure registration (#166), model tier declarations (#167), model registry wiring (#168). Fixed pre-existing SNAPSHOT Clock regression (qhorus ClockProducer vs ClinicalClockProducer). Key CDI learning: don't index casehub-blocks (blast radius) — use manual NarrativeCdiProducer instead.
 
 ## Immediate Next Step
 
-Start #161 (Real-time event cascade — SSE for orchestration visibility). Unblocked by #160.
+Batch 4: Convert Safety/Protocol/Operations workbenches from tree/tabs/columns to dockWorkbench layout and wire 4 blocks-ui panels. Plan at `plans/2026-09-14-agent-org-model-selection.md`, Task 5.
 
 ## References
 
-- Diary: `blog/2026-09-11-mdp01-when-the-agents-stop-being-stubs.md`
-- Design spec: `specs/issue-160-live-llm-agent-execution/2026-09-11-live-llm-agent-execution-design.md`
-- Platform issue: casehubio/platform#294 (LLM replay strategy)
+- `specs/issue-164-agent-org-model-selection/2026-09-14-agent-org-model-selection-design.md`
+- `plans/2026-09-14-agent-org-model-selection.md`
+- `specs/issue-164-agent-org-model-selection/decisions.md`
+- `JOURNAL.md`
 
 ## Known Flakes
 
