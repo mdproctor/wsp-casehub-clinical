@@ -34,3 +34,15 @@
 **Sources:** Issue #161 cascade list, `eventChronologyStrategy` filterCategories support
 **Exploration:** quick
 **Status:** captured
+
+## D4: Timeline rendering model
+
+**Choice:** Show full expected cascade upfront with pending nodes — transition each node from pending → active → completed as events arrive
+**Alternatives:**
+- Event-only stream — append nodes as events arrive, no prediction of future steps; simpler but users can't see where in the cascade they are or what's coming
+**Rationale:** The orchestration structure is the value — users need to see the full path and their position in it. EventTimelineNode.status already supports completed/active/pending/failed/skipped, so the infrastructure fits directly.
+**Trade-offs:** Requires knowing the expected cascade shape per AE grade/type upfront — different grades trigger different paths (Grade 1-2 skip SUSAR, Grade 3+ trigger escalation cases). The cascade template must be grade-aware.
+**Sources:** `EventTimelineNode` status enum, issue #161 "visual state (pending → active → resolved) with transitions"
+**Depends on:** D3 (domain steps define the node set)
+**Exploration:** quick
+**Status:** captured
