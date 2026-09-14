@@ -39,7 +39,7 @@ Three layers, all reusing existing platform infrastructure:
 
 1. **Server bridge** — CDI event observers and Vert.x event bus consumers call `EventBroadcaster.broadcast()` on a per-AE topic
 2. **Push transport** — `casehub-pages-push` handles WebSocket delivery, topic subscriptions, sequence tracking, gap detection, reconnection
-3. **UI timeline** — `EventTimelineNode` with `eventChronologyStrategy` renders the cascade with status transitions
+3. **UI timeline** — `EventTimelineNode` with `cascadeTimelineStrategy` renders the cascade with status transitions
 
 ## Section 1: Dependencies
 
@@ -143,6 +143,8 @@ The full cascade path depends on the AE grade and flags:
 
 **GATE_RESOLVED outcomes:** The gate carries one of three outcomes in `CascadeEvent.data`: `approved` (PI confirmed), `rejected` (PI rejected), or `expired` (gate timed out without action via `ActionGateExpiredEvent`). Gate expiry is a legitimate outcome handled by `SusarGateDecisionListener.onExpired()`.
 
+**Gate active phase limitation:** The cascade emits both GATE_OPENED and GATE_RESOLVED simultaneously when the gate decision event fires. The gate's "active" phase — the period between gate creation (WorkItem scheduled by `ActionGateWorkItemHandler`) and PI decision — is not visible in the cascade. Showing the gate as active requires engine-level event plumbing for gate creation, which is out of scope. The REST endpoint partially compensates: if the engine case has an active gate (gate exists but no decision ledger entry), GATE_OPENED shows as completed and GATE_RESOLVED shows as pending — indicating the gate is awaiting decision.
+
 **IND reporting condition:** `REGULATORY_SUBMISSION_STARTED` fires for Grade 3+ unexpected AEs regardless of the `suspected` flag — it represents IND expedited safety reporting (21 CFR 312.32), which is independent of the SUSAR determination. `RegulatorySubmissionCaseService` checks `isIndReportable(grade) && unexpected`, not SUSAR criteria.
 
 **Grade 1-2 rationale:** Grade 1-2 AEs do not fire `AdverseEventReportedEvent` (the CDI event only fires when `engineCaseRequired()` is true — Grade 3+). Grade 1-2 AEs are handled synchronously via WorkItem creation in `AdverseEventService.reportAdverseEvent()`. Safety officer notification is not triggered for Grade 1-2 AEs via the CDI observer path, so SAFETY_OFFICER_NOTIFIED is excluded from the Grade 1-2 template.
@@ -208,7 +210,27 @@ After the transaction commits, broadcast `AE_REPORTED (completed)`, `SLA_ASSIGNE
 
 ### Failure broadcasting
 
-When `AeEscalationCaseService.onAdverseEventReported()` catches an exception from `startCase()`, it calls `markFailed()`. A new `AeEscalationFailedEvent` CDI event is fired in `markFailed()`, which the broadcaster observes to emit `ESCALATION_CASE_STARTED (failed)`. All subsequent cascade steps (`AGENT_SELECTED`, `AGENT_REASONING`, etc.) are emitted as `skipped` by the broadcaster, since the escalation case never started.
+When `AeEscalationCaseService.onAdverseEventReported()` catches an exception from `startCase()`, it calls `markFailed()`. A new `AeEscalationFailedEvent` CDI event is fired in `markFailed()`, which the broadcaster observes to emit `ESCALATION_CASE_STARTED (failed)`.
+
+**Escalation-dependent steps — skipped on failure:**
+
+| Step | Reason skipped |
+|------|---------------|
+| AGENT_SELECTED | No engine case → no trust-weighted agent routing |
+| AGENT_REASONING | No engine case → no agent invocation |
+| AGENT_RESULT | No engine case → no agent invocation |
+| GATE_OPENED | No engine case → no SUSAR oversight gate (SUSAR template only) |
+| GATE_RESOLVED | No engine case → no gate to resolve (SUSAR template only) |
+| LEDGER_SEALED | No `CaseLifecycleEvent` fires → no completion ledger entry |
+
+**Independent steps — NOT skipped (fire from concurrent `@ObservesAsync` observers):**
+
+| Step | Independent observer |
+|------|---------------------|
+| SAFETY_OFFICER_NOTIFIED | `SafetyOfficerNotificationListener.onAeReported()` — fires from `AdverseEventReportedEvent`, independent of escalation |
+| REGULATORY_SUBMISSION_STARTED | `RegulatorySubmissionCaseService.onAdverseEventReported()` — fires from `AdverseEventReportedEvent`, independent of escalation |
+
+The broadcaster emits `skipped` only for the escalation-dependent steps listed above. It does NOT emit `skipped` for SAFETY_OFFICER_NOTIFIED, REGULATORY_SUBMISSION_STARTED, or LEDGER_SEALED from independent branches — those steps transition via their own event sources or remain pending if their conditions aren't met.
 
 ### Broadcast pattern
 
@@ -222,9 +244,27 @@ void broadcastStep(UUID aeId, CascadeStepType step, CascadeStepStatus status,
 }
 ```
 
-### New CDI event: AeEscalationStartedEvent
+### New CDI events: AeEscalationStartedEvent, AeEscalationFailedEvent
 
-The existing `AdverseEventReportedEvent` fires before the escalation case starts. The cascade needs to know when the escalation case is actually created. Add a new `AeEscalationStartedEvent` record in the api module, fired by `AeEscalationCaseService` after `startCase().join()` succeeds.
+Two new CDI event records in the api module, both fired by `AeEscalationCaseService`:
+
+```java
+public record AeEscalationStartedEvent(
+    UUID aeId,
+    UUID caseId,
+    CtcaeGrade grade,
+    String tenantId) {}
+
+public record AeEscalationFailedEvent(
+    UUID aeId,
+    CtcaeGrade grade,
+    String tenantId,
+    String errorMessage) {}
+```
+
+**AeEscalationStartedEvent** — fired after `startCase()` returns successfully. The existing `AdverseEventReportedEvent` fires before the escalation case starts; this event tells the cascade broadcaster when the case is actually created.
+
+**AeEscalationFailedEvent** — fired inside `AeEscalationCaseService.markFailed()` when `startCase()` throws. The broadcaster observes this to emit `ESCALATION_CASE_STARTED (failed)` and `skipped` for all escalation-dependent steps. Carries `aeId` (for topic construction), `grade` and `tenantId` (for event payload), and `errorMessage` (for the cascade event detail field).
 
 ### Agent execution hooks
 
@@ -288,7 +328,7 @@ When the user selects an AE in the safety workbench and switches to the "Live Ca
 3. Call `connection.listen(["clinical:ae:{aeId}:cascade"])`
 4. On each `pages-event` CustomEvent, update the corresponding `EventTimelineNode` status
 
-On AE deselection or tab switch: `connection.unlisten()` + `connection.close()`.
+On AE deselection or tab switch: `connection.unlisten(["clinical:ae:{aeId}:cascade"])` then `connection.close()`.
 
 ### CascadeTimelineStrategy
 
@@ -320,6 +360,8 @@ export function cascadeTimelineStrategy(): EventTimelineStrategy<CascadeEvent[]>
 ```
 
 **Merge semantics:** When a WebSocket event arrives, the strategy matches by `CascadeStepType` (the `key`), not by arrival position. The node list preserves template order regardless of event arrival order.
+
+**Status monotonicity:** `COMPLETED`, `FAILED`, and `SKIPPED` are terminal states. Once a step reaches a terminal state, subsequent events for the same `CascadeStepType` are dropped. Valid transitions: `PENDING → ACTIVE → COMPLETED/FAILED/SKIPPED`, `PENDING → COMPLETED/FAILED/SKIPPED`. This prevents nondeterministic arrival order from producing conflicting state — if two concurrent observers both emit events for the same step, the first terminal status wins.
 
 ### Step labels and categories
 
