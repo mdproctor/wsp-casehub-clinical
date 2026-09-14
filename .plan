@@ -13,3 +13,11 @@ flyway-next-v: unknown
 
 ## Queue
 - [ ] casehubio/clinical#161 — Issue #161 ← active
+  - [ ] Batch 1: Model+Deps
+    - [ ] Task 1: Cascade event model and push deps
+  - [ ] Batch 2: Push+Broadcaster
+    - [ ] Task 2: WebSocket push endpoint
+    - [ ] Task 3: CascadeBroadcaster and domain hooks
+  - [ ] Batch 3: REST+UI
+    - [ ] Task 4: Cascade REST endpoint
+    - [ ] Task 5: Frontend cascade timeline component
