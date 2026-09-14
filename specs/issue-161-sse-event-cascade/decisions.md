@@ -22,3 +22,15 @@
 **Exploration:** quick
 **Depends on:** D1 (push mechanism determines what data feeds the tab)
 **Status:** captured
+
+## D3: Event granularity
+
+**Choice:** Domain steps only — the 7-8 major cascade steps a clinical user cares about
+**Alternatives:**
+- Full engine detail (binding activations, worker resolution, case lifecycle) — adds noise for domain users, useful only for platform debugging
+- Hybrid with toggle — domain steps by default, engine detail behind an expand/filter; adds UI complexity for marginal benefit
+**Rationale:** The issue's cascade list (event reported → SLA assigned → agent selected → agent reasoning → gate decision → trust update → Merkle sealed) maps directly to clinical user intent. Engine internals are plumbing. eventChronologyStrategy already supports category-based filtering if engine detail is needed later.
+**Trade-offs:** Platform developers can't debug engine behavior from the cascade view — they'd use engine event logs for that
+**Sources:** Issue #161 cascade list, `eventChronologyStrategy` filterCategories support
+**Exploration:** quick
+**Status:** captured
