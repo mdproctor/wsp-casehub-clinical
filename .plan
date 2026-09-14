@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-164-agent-org-model-selection
-state: active
+state: closing:promoted
 project-sha: f84132e411e74bb381848f9b6c7c1f708e622d04
 date: 2026-09-14
 issue-repo: casehubio/clinical
@@ -11,6 +11,7 @@ design-repo: workspace
 design-section-hashes: 
 flyway-next-v: none
 
+evidence-era: true
 ## Queue
 - [ ] casehubio/clinical#164 — Issue #164 ← active
   - [x] Batch 1: Narratives
