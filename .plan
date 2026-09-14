@@ -15,9 +15,9 @@ flyway-next-v: none
 - [ ] casehubio/clinical#164 — Issue #164 ← active
   - [x] Batch 1: Narratives
     - [x] Task 1: ClinicalNarrativeSignalStrategy + NarrativeResource
-  - [ ] Batch 2: OrgTiers
-    - [ ] Task 2: Org structure registration
-    - [ ] Task 3: Model tier declarations
+  - [x] Batch 2: OrgTiers
+    - [x] Task 2: Org structure registration
+    - [x] Task 3: Model tier declarations
   - [ ] Batch 3: Registry
     - [ ] Task 4: Model registry config
   - [ ] Batch 4: UI
