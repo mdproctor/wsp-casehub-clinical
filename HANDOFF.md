@@ -2,11 +2,11 @@
 
 ## Last Session
 
-Designed and partially implemented #164 (Agent Organization + Model Selection). Completed 4 of 6 tasks: ClinicalNarrativeSignalStrategy (#165), org structure registration (#166), model tier declarations (#167), model registry wiring (#168). Fixed pre-existing SNAPSHOT Clock regression (qhorus ClockProducer vs ClinicalClockProducer). Key CDI learning: don't index casehub-blocks (blast radius) — use manual NarrativeCdiProducer instead.
+Completed all 6 tasks for #164 (Agent Organization + Model Selection). Batch 4: converted Safety, Protocol, Operations workbenches from columns/tabs to dockWorkbench with registerPanel pattern — wired orchestration-workbench, trust-workbench, conversation-viewer, routing-rationale panels. Added portal resolutions for all casehub-packages to fix transitive dependency failures. Batch 5: created ModelSelectionEvent record, added onModelSelection(@ObservesAsync) to ClinicalNarrativeSignalStrategy emitting MODEL_SELECTED StepOutcome signals, wired CDI event firing from ClinicalAgentSupport after tier-based model resolution.
 
 ## Immediate Next Step
 
-Batch 4: Convert Safety/Protocol/Operations workbenches from tree/tabs/columns to dockWorkbench layout and wire 4 blocks-ui panels. Plan at `plans/2026-09-14-agent-org-model-selection.md`, Task 5.
+All plan tasks complete. Ready for `work end` — code review, squash, merge, close issues #165-#170, close epic #164.
 
 ## References
 
@@ -22,3 +22,9 @@ Batch 4: Convert Safety/Protocol/Operations workbenches from tree/tabs/columns t
 - **DsmbRollupTest** — pre-existing async engine lifecycle flake
 - **CbrRetrievalAuditIntegrationTest** — pre-existing CBR state contamination flake
 - **ClinicalCaseOutcomeObserverIntegrationTest** — pre-existing CBR state contamination flake
+
+## Pre-existing Build Issues
+
+- **webui esbuild** — `emitPagesEvent`/`onPagesEvent` not exported from `pages-component` dist; pre-existing, not caused by this branch
+- **webui typecheck** — `DataSetId` brand type errors in `patient-detail.ts`, `trial-detail.ts`, `trial-list.ts`; pre-existing
+- **webui datasets.test.ts** — 4 failures related to DEMO_MODE/TRIAL_ID constants; pre-existing

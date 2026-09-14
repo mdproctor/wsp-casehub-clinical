@@ -20,7 +20,7 @@ flyway-next-v: none
     - [x] Task 3: Model tier declarations
   - [x] Batch 3: Registry
     - [x] Task 4: Model registry config
-  - [ ] Batch 4: UI
-    - [ ] Task 5: Convert workbenches to dockWorkbench
-  - [ ] Batch 5: Capstone
-    - [ ] Task 6: Model selection in narratives
+  - [x] Batch 4: UI
+    - [x] Task 5: Convert workbenches to dockWorkbench
+  - [x] Batch 5: Capstone
+    - [x] Task 6: Model selection in narratives
