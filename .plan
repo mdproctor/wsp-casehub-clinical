@@ -1,0 +1,15 @@
+# Work Plan — issue-164-agent-org-model-selection
+
+## State
+branch: issue-164-agent-org-model-selection
+state: scaffolded
+project-sha: f84132e411e74bb381848f9b6c7c1f708e622d04
+date: 2026-09-14
+issue-repo: casehubio/clinical
+covers: 164,165,166,167,168,169,170
+design-repo: workspace
+design-section-hashes: 
+flyway-next-v: none
+
+## Queue
+- [ ] casehubio/clinical#164 — Issue #164 ← active
