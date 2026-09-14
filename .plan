@@ -18,8 +18,8 @@ flyway-next-v: none
   - [x] Batch 2: OrgTiers
     - [x] Task 2: Org structure registration
     - [x] Task 3: Model tier declarations
-  - [ ] Batch 3: Registry
-    - [ ] Task 4: Model registry config
+  - [x] Batch 3: Registry
+    - [x] Task 4: Model registry config
   - [ ] Batch 4: UI
     - [ ] Task 5: Convert workbenches to dockWorkbench
   - [ ] Batch 5: Capstone
