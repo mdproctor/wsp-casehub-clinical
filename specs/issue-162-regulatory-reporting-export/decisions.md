@@ -35,3 +35,15 @@
 **Exploration:** quick
 **Depends on:** D2 (PDF rendering library)
 **Status:** captured
+
+## D4: IND safety report granularity
+
+**Choice:** Single endpoint, period-based — GET /api/reports/ind-safety?trialId=X&from=Y&to=Z returns aggregate stats + individual ICSRs for the period in one response.
+**Alternatives:**
+- Separate aggregate + ICSR endpoints — more granular but unnecessary API surface for v1
+- Streaming/paginated — premature, demo-scale trials won't hit size limits
+**Rationale:** Matches the issue spec. One call produces one complete report. FDA periodic safety reports are naturally period-bounded.
+**Trade-offs:** Large trials with many AEs could produce a big PDF. Acceptable at demo scale; pagination can be added later.
+**Sources:** 21 CFR 312.32, issue #162 endpoint spec
+**Exploration:** quick
+**Status:** captured
