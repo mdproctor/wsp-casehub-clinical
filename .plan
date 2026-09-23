@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-162-regulatory-reporting-export
-state: active
+state: closing:promoted
 project-sha: c7515a77fb47e839010a6eaee088c6647f729475
 date: 2026-09-21
 issue-repo: casehubio/clinical
@@ -11,9 +11,10 @@ design-repo: workspace
 design-section-hashes: 
 flyway-next-v: none
 
+evidence-era: true
 ## Queue
 - [ ] casehubio/clinical#162 — Issue #162 ← active
-  - [ ] Batch 1: Models+Service
-    - [ ] Task 1: Report models + IndSafetyReportService
-  - [ ] Batch 2: Endpoints
-    - [ ] Task 2: ReportResource + content negotiation + PDF
+  - [x] Batch 1: Models+Service
+    - [x] Task 1: Report models + IndSafetyReportService
+  - [x] Batch 2: Endpoints
+    - [x] Task 2: ReportResource + content negotiation + PDF
