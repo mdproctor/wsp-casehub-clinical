@@ -2,7 +2,7 @@
 
 ## State
 branch: issue-162-regulatory-reporting-export
-state: active
+state: paused
 project-sha: c7515a77fb47e839010a6eaee088c6647f729475
 date: 2026-09-21
 issue-repo: casehubio/clinical
