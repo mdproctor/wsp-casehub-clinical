@@ -13,3 +13,7 @@ flyway-next-v: none
 
 ## Queue
 - [ ] casehubio/clinical#162 — Issue #162 ← active
+  - [ ] Batch 1: Models+Service
+    - [ ] Task 1: Report models + IndSafetyReportService
+  - [ ] Batch 2: Endpoints
+    - [ ] Task 2: ReportResource + content negotiation + PDF
