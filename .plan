@@ -1,0 +1,15 @@
+# Work Plan — issue-174-migrate-scenario-yaml-to-playbook
+
+## State
+branch: issue-174-migrate-scenario-yaml-to-playbook
+state: scaffolded
+project-sha: 
+date: 
+issue-repo: casehubio/clinical
+covers: 174
+design-repo: 
+design-section-hashes: 
+flyway-next-v: 
+
+## Queue
+- [ ] casehubio/clinical#174 — Issue #174 ← active
